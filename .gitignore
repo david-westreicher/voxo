@@ -1,0 +1,4 @@
+__pycache__
+src/voxo.egg-info/
+.env
+build

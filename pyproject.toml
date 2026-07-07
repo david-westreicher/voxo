@@ -1,0 +1,49 @@
+[project]
+name = "voxo"
+version = "0.1.0"
+authors = [{ name = "David Westreicher" }]
+requires-python = ">=3.13"
+dependencies = ["moderngl==5.12.0", "moderngl_window==3.1.1"]
+
+[project.optional-dependencies]
+dev = ["pytest==9.1.1", "mypy==2.1.0", "ruff==0.15.20"]
+
+[tool.pytest.ini_options]
+markers = ["no_patch_eq"]
+pythonpath = ["src"]
+
+[tool.mypy]
+python_version = "3.13"
+files = ["src", "tests"]
+exclude = "^build/"
+strict = true
+ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+strict = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+[tool.ruff]
+lint.select = ["ALL"]
+src = ["src", "tests"]
+line-length = 120
+lint.ignore = [
+    "S101",   # Allow use of assert statements
+    "D",      # Missing docstring
+    "FIX002", # Allow TODO comments
+    "TD003",  # Allow TODO without issue link
+    "COM812",
+    "EM102",  # Allow f-string in errors
+    "TRY003", # Allow messages for exceptions
+    "DTZ006", # Allow datetime without TZ
+    "DTZ001", # Allow datetime without TZ
+    "ANN401", # Allow Any arguments (for instance for **kwargs)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**.py" = [
+    "ANN201",  # Allow missing type annotations in tests
+    "PLR2004", # Allow magic values
+]
