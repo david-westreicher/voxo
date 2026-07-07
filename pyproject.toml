@@ -11,13 +11,13 @@ dev = ["pytest==9.1.1", "mypy==2.1.0", "ruff==0.15.20"]
 [tool.pytest.ini_options]
 markers = ["no_patch_eq"]
 pythonpath = ["src"]
+filterwarnings = ["ignore::PendingDeprecationWarning:moderngl_window.*"]
 
 [tool.mypy]
 python_version = "3.13"
 files = ["src", "tests"]
 exclude = "^build/"
 strict = true
-ignore_missing_imports = false
 
 [[tool.mypy.overrides]]
 module = "tests.*"
