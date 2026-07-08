@@ -22,29 +22,104 @@ uniform sampler3D u_voxel_data;
 in vec2 vUV;
 out vec4 fragColor;
 
-const int MAX_STEPS = 50;
-float size = 10.0;
-vec3 boxMin = vec3(-(size * 0.5 + 0.5));
-vec3 boxMax = vec3(size * 0.5 - 0.5);
+const int MAX_STEPS = 300;
+const float size = 100.0;
+
+const vec3 lightPos = vec3(size * 2.0);
+vec3 boxMin = vec3(-(size * 0.5 ));
+vec3 boxMax = vec3(size * 0.5);
 
 float voxelmap(vec3 p) // voxel map
 {
-    vec3 local_coord = (p - boxMin) / (boxMax - boxMin); // Normalize to [0,1] range
+    //vec3 local_coord = (p - boxMin) / (boxMax - boxMin); // Normalize to [0,1] range
+    vec3 local_coord = (p - boxMin + 0.5) / vec3(size);
     return texture(u_voxel_data, local_coord).r - 0.8;
 }
 
 bool is_inside_box(vec3 p) {
     return all(greaterThanEqual(p, boxMin)) &&
-           all(lessThanEqual(p, boxMax));
+           all(lessThan(p, boxMax));
+}
+
+vec3 diffuseLight(vec3 normal, vec3 lightDir, vec3 lightColor, vec3 albedo)
+{
+    float NdotL = max(dot(normalize(normal), normalize(lightDir)), 0.0);
+    return albedo * lightColor * NdotL;
+}
+
+vec3 phongLight(
+    vec3 normal,
+    vec3 lightDir,
+    vec3 viewDir,
+    vec3 lightColor,
+    vec3 albedo,
+    float shininess
+)
+{
+    vec3 N = normalize(normal);
+    vec3 L = normalize(lightDir);
+    vec3 V = normalize(viewDir);
+
+    // Diffuse (Lambert)
+    float NdotL = max(dot(N, L), 0.0);
+    vec3 diffuse = albedo * lightColor * NdotL;
+
+    // Specular (Phong)
+    vec3 R = reflect(-L, N);
+    float spec = pow(max(dot(R, V), 0.0), shininess);
+    vec3 specular = lightColor * spec;
+
+    return diffuse + specular;
+}
+
+vec3 skyColor(vec3 rayDir)
+{
+    vec3 dir = normalize(rayDir);
+
+    // Map y from [-1,1] to [0,1]
+    float t = 0.5 * (dir.y + 1.0);
+
+    vec3 horizon = vec3(0.8, 0.9, 1.0);
+    vec3 zenith  = vec3(0.2, 0.4, 0.8);
+
+    return mix(horizon, zenith, t);
+}
+
+bool intersectAABB(
+    vec3 rayOrigin,
+    vec3 rayDir,
+    vec3 boxMin,
+    vec3 boxMax,
+    out float tHit
+)
+{
+    vec3 invDir = 1.0 / rayDir;
+
+    vec3 t0 = (boxMin - rayOrigin) * invDir;
+    vec3 t1 = (boxMax - rayOrigin) * invDir;
+
+    vec3 tMin = min(t0, t1);
+    vec3 tMax = max(t0, t1);
+
+    float tNear = max(max(tMin.x, tMin.y), tMin.z);
+    float tFar  = min(min(tMax.x, tMax.y), tMax.z);
+
+    // No intersection, or box is behind ray
+    if (tNear > tFar || tFar < 0.0)
+        return false;
+
+    tHit = max(tNear, 0.0);
+    return true;
 }
 
 // Code modified from: https://www.shadertoy.com/view/X3BXDd
 // Improved Branchless Voxel DDA
-void mainImage( out vec4 fragColor, in vec2 uv, in vec3 pos, in vec3 rayDir)
+void mainImage( out vec4 fragColor, in vec3 pos, in vec3 rayDir)
 {
-    vec3 color = vec3(0);
     
     // DDA setup
+    //
+    vec3 sky = skyColor(rayDir);
 
     vec3 map = floor(pos);           // integer cell coordinate of initial / current cell
 
@@ -93,8 +168,9 @@ void mainImage( out vec4 fragColor, in vec2 uv, in vec3 pos, in vec3 rayDir)
         if(is_inside_box(map) && !has_entered) {
             has_entered = true;
         }
+
         if(has_entered && !is_inside_box(map)) {
-            fragColor = vec4(0.0);
+            fragColor = vec4(sky, 0.0);
             return;
         }
 
@@ -107,20 +183,43 @@ void mainImage( out vec4 fragColor, in vec2 uv, in vec3 pos, in vec3 rayDir)
     }
 
     if (i == MAX_STEPS) {
-        fragColor = vec4(0.0);
+        fragColor = vec4(sky, 0.0);
         return;
     }
 
-    color[int(side)] = 1.; // voxel face debug
-    color = color * (0.25 + 0.5 * float(float(mod(map.x,2.) != mod(map.y,2.))!=mod(map.z,2.)) );
-    color = pow(clamp(color, 0., 1.), vec3(1./2.2));
-    fragColor = vec4(color,0.0);
+    vec3 albedo = vec3(0.0);
+    albedo[int(side)] = 1.; // voxel face debug
+    albedo = albedo * (0.25 + 0.5 * float(float(mod(map.x,2.) != mod(map.y,2.))!=mod(map.z,2.)) );
+
+    vec3 n = vec3(0.0);
+    n[int(side)] = -1. * sign(rayDir[int(side)]); // voxel face debug
+    vec3 p = map + .5 - stepDir*.5; // Point on axis plane
+
+    // Solve ray plane intersection equation: dot(n, ro + t * rd - p) = 0.
+    // for t :
+    float t = (dot(n, p - pos)) / dot(n, rayDir);
+    vec3 hit = pos + rayDir * t;
+
+    vec3 normal = vec3(0);
+    normal[int(side)] = -1. * sign(rayDir[int(side)]); // voxel face debug
+    vec3 L = normalize(lightPos - hit); // direction to light
+    vec3 V = normalize(pos - hit);
+
+    vec3 color = phongLight(
+        normal,
+        L,
+        V,
+        vec3(1.0),              // light color
+        albedo,                 // material/albedo
+        64.0                    // shininess
+    );
+
+    fragColor = vec4(color, 1.0);
 }
 
 
 void main() {
     vec2 ndc = vUV * 2.0 - 1.0;
-
     vec4 clip = vec4(ndc, -1.0, 1.0);
     vec4 eye = uInvProjection * clip;
     eye = vec4(eye.xy, -1.0, 0.0);
@@ -128,7 +227,15 @@ void main() {
     vec3 rd = normalize((uInvView * eye).xyz);
     vec3 ro = uCameraPos;
 
-    mainImage(fragColor,ndc,ro,rd);
+    float t;
+    if (intersectAABB(ro, rd, boxMin, boxMax, t))
+    {
+        vec3 hitPos = ro + (t-0.01) * rd;
+        mainImage(fragColor, hitPos, rd);
+        //fragColor = vec4(0.0);
+    } else {
+        fragColor = vec4(skyColor(rd), 0.0);
+    }
 }
 
 #endif

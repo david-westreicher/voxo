@@ -14,7 +14,7 @@ from moderngl_window.scene.camera import KeyboardCamera
 from pyglm import glm
 from pyglm.glm import mat4x4 as Mat4  # noqa: N812
 
-SIZE = 10
+SIZE = 100
 
 
 class CameraWindow(moderngl_window.WindowConfig):  # type: ignore[misc, name-defined]
@@ -69,8 +69,13 @@ class VoxelRenderer:
         self.program: Program = window.load_program("programs/raytrace_voxels.glsl")
         self.geometry: VAO = geometry.quad_fs(normals=False, uvs=True)
         data = np.random.randint(0, 256, size=(SIZE, SIZE, SIZE), dtype=np.uint8).tobytes()  # noqa: NPY002
+        #  data = np.zeros(shape=(SIZE, SIZE, SIZE), dtype=np.uint8)
+        # np.fill_diagonal(data, 255)
         self.voxel_texture = window.ctx.texture3d((SIZE, SIZE, SIZE), data=data, components=1, alignment=1, dtype="f1")
         self.voxel_texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
+        self.voxel_texture.repeat_x = False
+        self.voxel_texture.repeat_y = False
+        self.voxel_texture.repeat_z = False
 
     def render(self, camera: Camera) -> None:
         ctx = self.voxel_texture.ctx
