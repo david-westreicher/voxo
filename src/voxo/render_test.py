@@ -14,7 +14,9 @@ from moderngl_window.scene.camera import KeyboardCamera
 from pyglm import glm
 from pyglm.glm import mat4x4 as Mat4  # noqa: N812
 
-SIZE = 100
+from .model import parse_model
+
+MODEL_PATH = Path("./resources/models/dwarf.txt")
 
 
 class CameraWindow(moderngl_window.WindowConfig):  # type: ignore[misc, name-defined]
@@ -24,6 +26,7 @@ class CameraWindow(moderngl_window.WindowConfig):  # type: ignore[misc, name-def
         super().__init__(**kwargs)
         self.camera = KeyboardCamera(self.wnd.keys, aspect_ratio=self.wnd.aspect_ratio)
         self.camera.mouse_sensitivity = 0.05
+        self.camera.velocity = 50.0
         self.camera_enabled = True
 
     def on_key_event(self, key: Any, action: Any, modifiers: KeyModifiers) -> None:
@@ -65,17 +68,27 @@ class Object:
 
 
 class VoxelRenderer:
-    def __init__(self, window: moderngl_window.WindowConfig) -> None:  # type: ignore[name-defined]
+    def __init__(
+        self,
+        window: moderngl_window.WindowConfig,
+        data: bytes,
+        dimensions: tuple[int, int, int],
+        palette: bytes,
+    ) -> None:  # type: ignore[name-defined]
         self.program: Program = window.load_program("programs/raytrace_voxels.glsl")
         self.geometry: VAO = geometry.quad_fs(normals=False, uvs=True)
-        data = np.random.randint(0, 256, size=(SIZE, SIZE, SIZE), dtype=np.uint8).tobytes()  # noqa: NPY002
-        #  data = np.zeros(shape=(SIZE, SIZE, SIZE), dtype=np.uint8)
-        # np.fill_diagonal(data, 255)
-        self.voxel_texture = window.ctx.texture3d((SIZE, SIZE, SIZE), data=data, components=1, alignment=1, dtype="f1")
+
+        self.voxel_texture = window.ctx.texture3d(dimensions, data=data, components=1, alignment=1, dtype="u1")
         self.voxel_texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
         self.voxel_texture.repeat_x = False
         self.voxel_texture.repeat_y = False
         self.voxel_texture.repeat_z = False
+
+        self.palette_texture = window.ctx.texture((len(palette) // 3, 1), data=palette, components=3, dtype="f1")
+        self.palette_texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
+        self.palette_texture.repeat_x = False
+        self.palette_texture.repeat_y = False
+        self.palette_texture.repeat_z = False
 
     def render(self, camera: Camera) -> None:
         ctx = self.voxel_texture.ctx
@@ -84,8 +97,10 @@ class VoxelRenderer:
         self.program["uInvView"].write(glm.inverse(camera.matrix))  # type:ignore[union-attr]
         self.program["uCameraPos"].write(camera.position)  # type:ignore[union-attr]
         self.program["u_voxel_data"].value = 0  # type:ignore[union-attr]
+        self.program["u_palette_data"].value = 1  # type:ignore[union-attr]
 
         self.voxel_texture.use(location=0)
+        self.palette_texture.use(location=1)
         self.geometry.render(self.program)
         ctx.enable(moderngl.DEPTH_TEST)
 
@@ -98,13 +113,17 @@ class CubeSimple(CameraWindow):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.wnd.mouse_exclusivity = True
-        self.full_screen_shader = VoxelRenderer(self)
+        model = parse_model(MODEL_PATH)
+        data = model.generate_voxel_data()
+        palette = model.generate_palette_data()
+
+        self.full_screen_shader = VoxelRenderer(self, data, model.opengl_dimensions, palette)
         self.prog = self.load_program("programs/cube_simple.glsl")
         self.prog["color"].value = 1.0, 1.0, 0.0, 1.0
 
         self.cube = Object(geometry.cube(size=(1, 1, 1)))
         self.cube.translation = glm.translate(glm.vec3(0.0))
-        self.cube.scale = glm.scale(glm.vec3(SIZE))
+        self.cube.scale = glm.scale(glm.vec3(model.opengl_dimensions))
 
     def on_render(self, time: float, frametime: float) -> None:  # noqa: ARG002
         self.ctx.enable_only(moderngl.CULL_FACE | moderngl.DEPTH_TEST)

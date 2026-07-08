@@ -17,23 +17,25 @@ void main() {
 uniform vec3 uCameraPos;
 uniform mat4 uInvView;
 uniform mat4 uInvProjection;
-uniform sampler3D u_voxel_data;
+uniform usampler3D u_voxel_data;
+uniform sampler2D u_palette_data;
 
 in vec2 vUV;
 out vec4 fragColor;
 
-const int MAX_STEPS = 300;
-const float size = 100.0;
+vec3 size = ceil(textureSize(u_voxel_data, 0) * 0.5) * 2.0;
+float inv_palette_size = 1.0 / (textureSize(u_palette_data, 0).r - 1.0);
+int MAX_STEPS = int(max(size.x, max(size.y, size.z)))*3;
 
-const vec3 lightPos = vec3(size * 2.0);
-vec3 boxMin = vec3(-(size * 0.5 ));
-vec3 boxMax = vec3(size * 0.5);
+vec3 boxMin = -size * 0.5;
+vec3 boxMax = size * 0.5;
+vec3 lightPos = vec3(size * 2.0);
 
-float voxelmap(vec3 p) // voxel map
+
+uint voxelmap(vec3 p)
 {
-    //vec3 local_coord = (p - boxMin) / (boxMax - boxMin); // Normalize to [0,1] range
     vec3 local_coord = (p - boxMin + 0.5) / vec3(size);
-    return texture(u_voxel_data, local_coord).r - 0.8;
+    return texture(u_voxel_data, local_coord).r;
 }
 
 bool is_inside_box(vec3 p) {
@@ -174,7 +176,6 @@ void mainImage( out vec4 fragColor, in vec3 pos, in vec3 rayDir)
             return;
         }
 
-        
         if(has_entered && voxelmap(map) > 0.) // Did we hit anything? if so, we are done!
         {
             side = cases.y + 2. * cases.z;
@@ -182,14 +183,16 @@ void mainImage( out vec4 fragColor, in vec3 pos, in vec3 rayDir)
         }
     }
 
-    if (i == MAX_STEPS) {
-        fragColor = vec4(sky, 0.0);
-        return;
-    }
-
     vec3 albedo = vec3(0.0);
     albedo[int(side)] = 1.; // voxel face debug
     albedo = albedo * (0.25 + 0.5 * float(float(mod(map.x,2.) != mod(map.y,2.))!=mod(map.z,2.)) );
+    if (voxelmap(map) > 20.0) {
+        discard;
+    }
+
+    //vec2 palette_coord = vec2(0.5,0.5);
+    vec2 palette_coord = vec2(float(voxelmap(map)) * inv_palette_size);
+    albedo = texture(u_palette_data, palette_coord).rgb;
 
     vec3 n = vec3(0.0);
     n[int(side)] = -1. * sign(rayDir[int(side)]); // voxel face debug
@@ -232,7 +235,6 @@ void main() {
     {
         vec3 hitPos = ro + (t-0.01) * rd;
         mainImage(fragColor, hitPos, rd);
-        //fragColor = vec4(0.0);
     } else {
         fragColor = vec4(skyColor(rd), 0.0);
     }
