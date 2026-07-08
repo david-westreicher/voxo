@@ -43,7 +43,6 @@ class Model:
         return bytes(voxel_data)
 
     def generate_palette_data(self) -> bytes:
-        print(self.palette, len(self.palette))
         palette_data = [0] * 3
         for r, g, b in self.palette:
             palette_data.extend([r, g, b])
@@ -76,8 +75,3 @@ def parse_model(model_path: Path) -> Model:
     palette = sorted(convert_hex_to_rgb(col) for col in hex_palette)
     voxels = [(x, y, z, hex_palette.index(col)) for x, y, z, col in voxels]
     return Model(palette=palette, voxels=voxels)
-
-
-if __name__ == "__main__":
-    model = parse_model(Path("./resources/models/chr_rain.txt"))
-    print(model, model.generate_voxel_data())
