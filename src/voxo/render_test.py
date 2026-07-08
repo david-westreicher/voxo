@@ -4,7 +4,6 @@ from typing import Any, cast
 
 import moderngl
 import moderngl_window
-import numpy as np
 from moderngl import Program
 from moderngl_window import geometry
 from moderngl_window.context.base import KeyModifiers
@@ -17,6 +16,8 @@ from pyglm.glm import mat4x4 as Mat4  # noqa: N812
 from .model import parse_model
 
 MODEL_PATH = Path("./resources/models/dwarf.txt")
+SCREEN_DIMENSIONS = (1920, 1080)
+ASPECT_RATIO = SCREEN_DIMENSIONS[0] / SCREEN_DIMENSIONS[1]
 
 
 class CameraWindow(moderngl_window.WindowConfig):  # type: ignore[misc, name-defined]
@@ -24,7 +25,7 @@ class CameraWindow(moderngl_window.WindowConfig):  # type: ignore[misc, name-def
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self.camera = KeyboardCamera(self.wnd.keys, aspect_ratio=self.wnd.aspect_ratio)
+        self.camera = KeyboardCamera(self.wnd.keys, aspect_ratio=ASPECT_RATIO)
         self.camera.mouse_sensitivity = 0.05
         self.camera.velocity = 50.0
         self.camera_enabled = True
@@ -70,11 +71,11 @@ class Object:
 class VoxelRenderer:
     def __init__(
         self,
-        window: moderngl_window.WindowConfig,
+        window: moderngl_window.WindowConfig,  # type: ignore[name-defined]
         data: bytes,
         dimensions: tuple[int, int, int],
         palette: bytes,
-    ) -> None:  # type: ignore[name-defined]
+    ) -> None:
         self.program: Program = window.load_program("programs/raytrace_voxels.glsl")
         self.geometry: VAO = geometry.quad_fs(normals=False, uvs=True)
 
@@ -105,9 +106,58 @@ class VoxelRenderer:
         ctx.enable(moderngl.DEPTH_TEST)
 
 
+class RenderIntoTexture:
+    def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int]) -> None:  # type: ignore[name-defined]
+        self.framebuffer_texture = window.ctx.texture(size=size, components=3, dtype="f2")
+        self.framebuffer = window.ctx.framebuffer(color_attachments=[self.framebuffer_texture])
+        self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
+        self.program = window.load_program("programs/tonemapping.glsl")
+        self.program["u_texture"].value = 0
+
+    def start(self) -> None:
+        self.framebuffer.clear(0.0, 0.0, 0.0, 0.0)
+        self.framebuffer.use()
+
+    def render(self) -> None:
+        self.framebuffer_texture.use(location=0)
+        self.quad_fs.render(self.program)
+
+
+class SkyRenderer:
+    def __init__(self, window: moderngl_window.WindowConfig) -> None:  # type: ignore[name-defined]
+        self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
+        self.program = window.load_program("programs/sky_renderer.glsl")
+
+    def render(self, camera: Camera) -> None:
+        self.program["uInvProjection"].write(glm.inverse(camera.projection.matrix))  # type:ignore[union-attr]
+        self.program["uInvView"].write(glm.inverse(camera.matrix))  # type:ignore[union-attr]
+        self.quad_fs.render(self.program)
+
+
+class WireFrameBox:
+    def __init__(self, window: moderngl_window.WindowConfig, dimensions: tuple[float, float, float]) -> None:  # type: ignore[name-defined]
+        self.prog = window.load_program("programs/cube_simple.glsl")
+        self.prog["color"].value = 1.0, 1.0, 0.0, 1.0
+
+        self.cube = Object(geometry.cube(size=(1, 1, 1)))
+        self.cube.translation = glm.translate(glm.vec3(0.0))
+        self.cube.scale = glm.scale(glm.vec3(dimensions))
+
+    def render(self, camera: Camera) -> None:
+        ctx = self.prog.ctx
+        ctx.enable_only(moderngl.CULL_FACE)
+        ctx.wireframe = True
+        self.prog["m_proj"].write(camera.projection.matrix)
+        self.prog["m_model"].write(self.cube.modelview)
+        self.prog["m_camera"].write(camera.matrix)
+        self.cube.geometry.render(self.prog)
+        ctx.wireframe = False
+
+
 class CubeSimple(CameraWindow):
     gl_version = (4, 6)
-    title = "Plain Cube"
+    window_size = SCREEN_DIMENSIONS
+    title = "voxo"
     resource_dir = Path("resources").resolve()
 
     def __init__(self, **kwargs: Any) -> None:
@@ -117,23 +167,23 @@ class CubeSimple(CameraWindow):
         data = model.generate_voxel_data()
         palette = model.generate_palette_data()
 
-        self.full_screen_shader = VoxelRenderer(self, data, model.opengl_dimensions, palette)
-        self.prog = self.load_program("programs/cube_simple.glsl")
-        self.prog["color"].value = 1.0, 1.0, 0.0, 1.0
-
-        self.cube = Object(geometry.cube(size=(1, 1, 1)))
-        self.cube.translation = glm.translate(glm.vec3(0.0))
-        self.cube.scale = glm.scale(glm.vec3(model.opengl_dimensions))
+        self.framebuffer = RenderIntoTexture(self, SCREEN_DIMENSIONS)
+        self.sky_renderer = SkyRenderer(self)
+        self.voxel_renderer = VoxelRenderer(self, data, model.opengl_dimensions, palette)
+        self.wireframe_box = WireFrameBox(self, model.opengl_dimensions)
 
     def on_render(self, time: float, frametime: float) -> None:  # noqa: ARG002
-        self.ctx.enable_only(moderngl.CULL_FACE | moderngl.DEPTH_TEST)
+        # Render into HDR framebuffer
+        self.framebuffer.start()
 
-        self.prog["m_proj"].write(self.camera.projection.matrix)
-        self.prog["m_model"].write(self.cube.modelview)
-        self.prog["m_camera"].write(self.camera.matrix)
+        self.sky_renderer.render(self.camera)
+        self.voxel_renderer.render(self.camera)
+        self.wireframe_box.render(self.camera)
 
-        self.full_screen_shader.render(self.camera)
-
-        self.ctx.wireframe = True
-        self.cube.geometry.render(self.prog)
-        self.ctx.wireframe = False
+        # Render framebuffer onto screen
+        self.ctx.screen.clear(0.1, 0.1, 0.1, 1.0)
+        self.ctx.screen.use()
+        self.ctx.enable_only(moderngl.BLEND)
+        self.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
+        self.framebuffer.render()
+        self.ctx.disable(moderngl.BLEND)

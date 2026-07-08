@@ -29,7 +29,7 @@ int MAX_STEPS = int(max(size.x, max(size.y, size.z)))*3;
 
 vec3 boxMin = -size * 0.5;
 vec3 boxMax = size * 0.5;
-vec3 lightPos = vec3(size * 2.0);
+vec3 lightPos = vec3(MAX_STEPS);
 
 
 uint voxelmap(vec3 p)
@@ -74,19 +74,6 @@ vec3 phongLight(
     return diffuse + specular;
 }
 
-vec3 skyColor(vec3 rayDir)
-{
-    vec3 dir = normalize(rayDir);
-
-    // Map y from [-1,1] to [0,1]
-    float t = 0.5 * (dir.y + 1.0);
-
-    vec3 horizon = vec3(0.8, 0.9, 1.0);
-    vec3 zenith  = vec3(0.2, 0.4, 0.8);
-
-    return mix(horizon, zenith, t);
-}
-
 bool intersectAABB(
     vec3 rayOrigin,
     vec3 rayDir,
@@ -120,11 +107,7 @@ void mainImage( out vec4 fragColor, in vec3 pos, in vec3 rayDir)
 {
     
     // DDA setup
-    //
-    vec3 sky = skyColor(rayDir);
-
     vec3 map = floor(pos);           // integer cell coordinate of initial / current cell
-
     vec3 stepDir=vec3(0);            // step sign +/- 1
     vec3 sideDist=vec3(9e9);         // initial distance to cell sides, then relative difference between traveled sides
     
@@ -172,8 +155,7 @@ void mainImage( out vec4 fragColor, in vec3 pos, in vec3 rayDir)
         }
 
         if(has_entered && !is_inside_box(map)) {
-            fragColor = vec4(sky, 0.0);
-            return;
+            discard;
         }
 
         if(has_entered && voxelmap(map) > 0.) // Did we hit anything? if so, we are done!
@@ -186,9 +168,6 @@ void mainImage( out vec4 fragColor, in vec3 pos, in vec3 rayDir)
     vec3 albedo = vec3(0.0);
     albedo[int(side)] = 1.; // voxel face debug
     albedo = albedo * (0.25 + 0.5 * float(float(mod(map.x,2.) != mod(map.y,2.))!=mod(map.z,2.)) );
-    if (voxelmap(map) > 20.0) {
-        discard;
-    }
 
     //vec2 palette_coord = vec2(0.5,0.5);
     vec2 palette_coord = vec2(float(voxelmap(map)) * inv_palette_size);
@@ -236,7 +215,7 @@ void main() {
         vec3 hitPos = ro + (t-0.01) * rd;
         mainImage(fragColor, hitPos, rd);
     } else {
-        fragColor = vec4(skyColor(rd), 0.0);
+        discard;
     }
 }
 
