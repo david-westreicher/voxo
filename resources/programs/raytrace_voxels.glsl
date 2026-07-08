@@ -23,7 +23,7 @@ uniform sampler2D u_palette_data;
 in vec2 vUV;
 out vec4 fragColor;
 
-vec3 size = ceil(textureSize(u_voxel_data, 0) * 0.5) * 2.0;
+vec3 size = ceil(textureSize(u_voxel_data, 0) * 0.5) * 2.0; // NOTE(david): hack to make odd dimensions work
 float inv_palette_size = 1.0 / (textureSize(u_palette_data, 0).r - 1.0);
 int MAX_STEPS = int(max(size.x, max(size.y, size.z)))*3;
 
