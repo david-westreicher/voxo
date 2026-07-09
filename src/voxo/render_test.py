@@ -77,7 +77,9 @@ class VoxelRenderer:
         palette: bytes,
     ) -> None:
         self.program: Program = window.load_program("programs/raytrace_voxels.glsl")
-        self.geometry: VAO = geometry.quad_fs(normals=False, uvs=True)
+        self.cube = Object(geometry.cube(size=(1, 1, 1)))
+        self.cube.translation = glm.translate(glm.vec3(0.0))
+        self.cube.scale = glm.scale(glm.vec3(dimensions))
 
         self.voxel_texture = window.ctx.texture3d(dimensions, data=data, components=1, alignment=1, dtype="u1")
         self.voxel_texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
@@ -91,18 +93,22 @@ class VoxelRenderer:
         self.palette_texture.repeat_y = False
         self.palette_texture.repeat_z = False
 
-    def render(self, camera: Camera) -> None:
+    def render(self, camera: Camera, time: float) -> None:
         ctx = self.voxel_texture.ctx
         ctx.disable(moderngl.DEPTH_TEST)
+        self.program["m_proj"].write(camera.projection.matrix)  # type:ignore[union-attr]
+        self.program["m_model"].write(self.cube.modelview)  # type:ignore[union-attr]
+        self.program["m_camera"].write(camera.matrix)  # type:ignore[union-attr]
         self.program["uInvProjection"].write(glm.inverse(camera.projection.matrix))  # type:ignore[union-attr]
         self.program["uInvView"].write(glm.inverse(camera.matrix))  # type:ignore[union-attr]
         self.program["uCameraPos"].write(camera.position)  # type:ignore[union-attr]
         self.program["u_voxel_data"].value = 0  # type:ignore[union-attr]
         self.program["u_palette_data"].value = 1  # type:ignore[union-attr]
+        self.program["time"].value = time  # type:ignore[union-attr]
 
         self.voxel_texture.use(location=0)
         self.palette_texture.use(location=1)
-        self.geometry.render(self.program)
+        self.cube.geometry.render(self.program)
         ctx.enable(moderngl.DEPTH_TEST)
 
 
@@ -163,21 +169,27 @@ class CubeSimple(CameraWindow):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.wnd.mouse_exclusivity = True
-        model = parse_model(MODEL_PATH)
-        data = model.generate_voxel_data()
-        palette = model.generate_palette_data()
+        self.time = 0
 
         self.framebuffer = RenderIntoTexture(self, SCREEN_DIMENSIONS)
         self.sky_renderer = SkyRenderer(self)
-        self.voxel_renderer = VoxelRenderer(self, data, model.opengl_dimensions, palette)
+        model = parse_model(MODEL_PATH)
+        self.voxel_renderer = VoxelRenderer(
+            self,
+            model.generate_voxel_data(),
+            model.opengl_dimensions,
+            model.generate_palette_data(),
+        )
         self.wireframe_box = WireFrameBox(self, model.opengl_dimensions)
 
     def on_render(self, time: float, frametime: float) -> None:  # noqa: ARG002
+        self.time += 1
+
         # Render into HDR framebuffer
         self.framebuffer.start()
 
         self.sky_renderer.render(self.camera)
-        self.voxel_renderer.render(self.camera)
+        self.voxel_renderer.render(self.camera, self.time)
         self.wireframe_box.render(self.camera)
 
         # Render framebuffer onto screen
