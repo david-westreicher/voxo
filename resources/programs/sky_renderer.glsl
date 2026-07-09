@@ -29,7 +29,7 @@ vec3 skyColor(vec3 rayDir)
     float t = 0.5 * (dir.y + 1.0);
 
     vec3 horizon = vec3(0.8, 0.9, 1.0);
-    vec3 zenith  = vec3(0.2, 0.4, 0.8);
+    vec3 zenith = vec3(0.2, 0.4, 0.8);
 
     return mix(horizon, zenith, t) * 2.5;
 }

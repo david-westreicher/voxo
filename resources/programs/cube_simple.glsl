@@ -15,7 +15,7 @@ out vec3 normal;
 void main() {
     mat4 m_view = m_camera * m_model;
     vec4 p = m_view * vec4(in_position, 1.0);
-    gl_Position =  m_proj * p;
+    gl_Position = m_proj * p;
     mat3 m_normal = inverse(transpose(mat3(m_view)));
     normal = m_normal * normalize(in_normal);
     pos = p.xyz;

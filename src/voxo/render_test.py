@@ -25,7 +25,7 @@ class CameraWindow(moderngl_window.WindowConfig):  # type: ignore[misc, name-def
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self.camera = KeyboardCamera(self.wnd.keys, aspect_ratio=ASPECT_RATIO)
+        self.camera = KeyboardCamera(self.wnd.keys, aspect_ratio=ASPECT_RATIO, far=1000.0, fov=74)
         self.camera.mouse_sensitivity = 0.05
         self.camera.velocity = 50.0
         self.camera_enabled = True
