@@ -19,6 +19,7 @@ uniform sampler2D u_albedo;
 uniform sampler2D u_normal;
 uniform sampler2D u_depth;
 uniform sampler2D u_lighting;
+uniform float full;
 const float exposure = 1.0;
 
 in vec2 uv;
@@ -27,6 +28,12 @@ vec3 decodeNormalRGB10A2(vec3 encoded)
 {
     // map [0,1] -> [-1,1]
     return normalize(encoded * 2.0 - 1.0);
+}
+
+vec3 tonemap(vec3 hdr) {
+    hdr *= exposure;
+    vec3 ldr = hdr / (hdr + vec3(1.0));
+    return ldr;
 }
 
 void main() {
@@ -51,7 +58,7 @@ void main() {
         {
             float checker = mod(floor(gl_FragCoord.x / 32.0) + floor(gl_FragCoord.y / 32.0), 2.0);
             color = mix(vec3(0.1), vec3(0.9), checker);
-            color = texture(u_lighting, local).rgb;
+            color = tonemap(texture(u_lighting, local).rgb);
         }
         else
         {
@@ -59,6 +66,10 @@ void main() {
             color = normal * 0.5 + 0.5;
         }
     }
-    fragColor = vec4(color, 1.0);
+    if (full > 0) {
+        fragColor = vec4(color, 1.0);
+    } else {
+        fragColor = vec4(tonemap(texture(u_lighting, uv).rgb), 1.0);
+    }
 }
 #endif

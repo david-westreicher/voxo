@@ -194,10 +194,10 @@ vec3 compute_light(vec3 camera_pos, vec3 pos, vec3 normal, vec3 albedo, Pcg32Sta
     vec3 L = normalize(lightPos - pos); // direction to light
     Ray sun_ray = Ray(ray_start, L);
     Hit sun_hit = dda(sun_ray, MAX_STEPS);
-    if (sun_hit.hit || ambient_gathered < 0.0) {
-        return vec3(occlusion) * albedo * ambientColor;
+    if (sun_hit.hit) {
+        return ambient;
     } else {
-        vec3 lightColor = vec3(20.0, 18.0, 15.0) * pow(MAX_STEPS, 2.0) * 1.0;
+        vec3 lightColor = vec3(20.0, 18.0, 15.0) * MAX_STEPS * MAX_STEPS * 0.5;
         float shininess = 60;
 
         float distance = length(lightPos - pos);
@@ -215,7 +215,7 @@ vec3 compute_light(vec3 camera_pos, vec3 pos, vec3 normal, vec3 albedo, Pcg32Sta
         float spec = pow(NdotH, shininess);
         vec3 specular = lightColor * spec * attenuation;
 
-        return diffuse + specular;
+        return ambient + diffuse + specular;
     }
 }
 

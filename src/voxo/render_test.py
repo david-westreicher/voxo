@@ -269,6 +269,7 @@ class CubeSimple(CameraWindow):
         self.time = 0
 
         model = parse_model(MODEL_PATH)
+        print(model.dimensions)
         self.voxel_renderer = VoxelRenderer(
             self,
             model.generate_voxel_data(),
@@ -277,7 +278,10 @@ class CubeSimple(CameraWindow):
         )
         self.gbuffer = GBuffer(self, SCREEN_DIMENSIONS)
         self.gbuffer_lighting = GBufferLighting(
-            self, SCREEN_DIMENSIONS, self.gbuffer, self.voxel_renderer.voxel_texture
+            self,
+            SCREEN_DIMENSIONS,
+            self.gbuffer,
+            self.voxel_renderer.voxel_texture,
         )
         self.gbuffer_debug = GBufferDebug(self, self.gbuffer, self.gbuffer_lighting.lighting_texture)
         self.sky_renderer = SkyRenderer(self)
@@ -285,7 +289,7 @@ class CubeSimple(CameraWindow):
         self.box = Box(self)
 
     def on_render(self, time: float, frametime: float) -> None:  # noqa: ARG002
-        self.time += 0
+        self.time += 1
 
         # Render into HDR framebuffer
         self.gbuffer.start()
