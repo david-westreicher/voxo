@@ -1,47 +1,56 @@
-#version 400
+#version 330
 
 #if defined VERTEX_SHADER
 
 in vec3 in_position;
+in vec2 in_texcoord_0;
 
-uniform mat4 m_model;
-uniform mat4 m_camera;
-uniform mat4 m_proj;
+out vec2 uv;
 
 void main() {
-    mat4 m_view = m_camera * m_model;
-    vec4 p = m_view * vec4(in_position, 1.0);
-    gl_Position = m_proj * p;
+    gl_Position = vec4(in_position, 1);
+    uv = in_texcoord_0;
 }
 
 #elif defined FRAGMENT_SHADER
 
 #include programs/pcg_random.glsl
+//#include programs/utils.glsl
 
-uniform vec3 uCameraPos;
-uniform mat4 uInvView;
-uniform mat4 uInvProjection;
-uniform usampler3D u_voxel_data;
-uniform sampler2D u_palette_data;
+in vec2 uv;
+
 uniform float time;
-uniform mat4 m_camera;
-uniform mat4 m_proj;
-
-in vec2 vUV;
+uniform sampler2D u_albedo;
+uniform sampler2D u_normal;
+uniform sampler2D u_depth;
+uniform usampler3D u_voxel_data;
+uniform mat4 u_inv_proj_view;
+uniform vec3 uCameraPos;
 
 const float PI = 3.14159265;
 const int MAX_OCC_SAMPLES = 10;
 const int MAX_OCC_DISTANCE = 10;
 vec3 size = ceil(textureSize(u_voxel_data, 0) * 0.5) * 2.0; // NOTE(david): hack to make odd dimensions work
-float inv_palette_size = 1.0 / (textureSize(u_palette_data, 0).r - 1.0);
 int MAX_STEPS = int(max(size.x, max(size.y, size.z))) * 3;
 
 vec3 boxMin = -size * 0.5;
 vec3 boxMax = size * 0.5;
 vec3 lightPos = vec3(sin(time * 0.01), 0.5, cos(time * 0.01)) * MAX_STEPS * 2.0;
 
-layout(location = 0) out vec3 u_albedo;
-layout(location = 1) out vec3 u_normal;
+out vec4 fragColor;
+
+struct Hit {
+    bool hit;
+    float t;
+    vec3 position;
+    vec3 voxel;
+    vec3 normal;
+};
+
+struct Ray {
+    vec3 origin;
+    vec3 direction;
+};
 
 uint voxelmap(vec3 p)
 {
@@ -66,50 +75,34 @@ vec3 skyColor(vec3 rayDir) {
     return mix(horizon, zenith, t) * 2.5;
 }
 
-float worldPosToDepth(vec3 worldPos) {
-    mat4 viewProj = m_proj * m_camera;
-    vec4 clipPos = viewProj * vec4(worldPos, 1.0);
-    float ndcDepth = clipPos.z / clipPos.w;
-    // OpenGL NDC z [-1, 1] -> depth buffer [0, 1]
-    return ndcDepth * 0.5 + 0.5;
+vec3 decodeNormalRGB10A2(vec3 encoded)
+{
+    // map [0,1] -> [-1,1]
+    vec3 decoded = encoded * 2.0 - 1.0;
+    return normalize(decoded);
 }
 
-struct Hit {
-    bool hit;
-    float t;
-    vec3 position;
-    vec3 voxel;
-    vec3 normal;
-};
+float linearizeDepth(float depth)
+{
+    float z = depth * 2.0 - 1.0; // [0,1] -> [-1,1]
 
-struct Ray {
-    vec3 origin;
-    vec3 direction;
-};
+    float near = 0.1;
+    float far = 1000.0;
 
-bool intersectAABB(
-    Ray ray,
-    vec3 boxMin,
-    vec3 boxMax,
-    out float tHit
-) {
-    vec3 invDir = 1.0 / ray.direction;
+    return (2.0 * near * far) /
+        (far + near - z * (far - near));
+}
 
-    vec3 t0 = (boxMin - ray.origin) * invDir;
-    vec3 t1 = (boxMax - ray.origin) * invDir;
-
-    vec3 tMin = min(t0, t1);
-    vec3 tMax = max(t0, t1);
-
-    float tNear = max(max(tMin.x, tMin.y), tMin.z);
-    float tFar = min(min(tMax.x, tMax.y), tMax.z);
-
-    // No intersection, or box is behind ray
-    if (tNear > tFar || tFar < 0.0)
-        return false;
-
-    tHit = max(tNear, 0.0);
-    return true;
+vec3 reconstructWorldPos(float depth)
+{
+    vec2 ndc = uv * 2.0 - 1.0;
+    // Depth buffer [0,1] -> NDC z [-1,1]
+    float ndcZ = depth * 2.0 - 1.0;
+    vec4 clipPos = vec4(ndc, ndcZ, 1.0);
+    // Clip space -> world space
+    vec4 worldPos = u_inv_proj_view * clipPos;
+    // Perspective divide
+    return worldPos.xyz / worldPos.w;
 }
 
 Hit dda(Ray ray, int max_steps) {
@@ -165,8 +158,7 @@ Hit dda(Ray ray, int max_steps) {
     return hit;
 }
 
-vec3 cosineSampleHemisphere(vec3 n, vec2 u)
-{
+vec3 cosineSampleHemisphere(vec3 n, vec2 u) {
     float r = sqrt(u.x);
     float theta = 2.0 * PI * u.y;
 
@@ -176,7 +168,7 @@ vec3 cosineSampleHemisphere(vec3 n, vec2 u)
     return normalize(r * sin(theta) * B + sqrt(1.0 - u.x) * n + r * cos(theta) * T);
 }
 
-vec3 compute_light(Ray camera_ray, vec3 pos, vec3 normal, vec3 albedo, Pcg32State rnd) {
+vec3 compute_light(vec3 camera_pos, vec3 pos, vec3 normal, vec3 albedo, Pcg32State rnd) {
     vec3 ray_start = pos + normal * 0.1;
 
     // Ambient Occlusion
@@ -202,8 +194,8 @@ vec3 compute_light(Ray camera_ray, vec3 pos, vec3 normal, vec3 albedo, Pcg32Stat
     vec3 L = normalize(lightPos - pos); // direction to light
     Ray sun_ray = Ray(ray_start, L);
     Hit sun_hit = dda(sun_ray, MAX_STEPS);
-    if (sun_hit.hit) {
-        return ambient;
+    if (sun_hit.hit || ambient_gathered < 0.0) {
+        return vec3(occlusion) * albedo * ambientColor;
     } else {
         vec3 lightColor = vec3(20.0, 18.0, 15.0) * pow(MAX_STEPS, 2.0) * 1.0;
         float shininess = 60;
@@ -217,51 +209,26 @@ vec3 compute_light(Ray camera_ray, vec3 pos, vec3 normal, vec3 albedo, Pcg32Stat
         vec3 diffuse = albedo * lightColor * NdotL * attenuation;
 
         // specular
-        vec3 V = normalize(camera_ray.origin - pos);
+        vec3 V = normalize(camera_pos - pos);
         vec3 H = normalize(L + V);
         float NdotH = max(dot(normal, H), 0.0);
         float spec = pow(NdotH, shininess);
         vec3 specular = lightColor * spec * attenuation;
 
-        return ambient + diffuse + specular;
+        return diffuse + specular;
     }
 }
 
-vec3 encodeNormalRGB10A2(vec3 normal)
-{
-    return normal * 0.5 + 0.5;
-}
-
 void main() {
-    vec2 ndc = gl_FragCoord.xy / vec2(1920, 1080) * 2.0 - 1.0;
-    vec4 clip = vec4(ndc, -1.0, 1.0);
-    vec4 eye = uInvProjection * clip;
-    eye = vec4(eye.xy, -1.0, 0.0);
-    Ray camera_ray = Ray(uCameraPos, normalize((uInvView * eye).xyz));
-
     Pcg32State rnd = pcg_srandom(uint(gl_FragCoord.x) +
                 uint(gl_FragCoord.y) * 4097U +
                 uint(time) * 1234567U);
 
-    float t;
-    u_normal = vec3(0.0);
-    if (intersectAABB(camera_ray, boxMin, boxMax, t)) {
-        vec3 hitPos = camera_ray.origin + (t - 0.01) * camera_ray.direction;
-        Ray ray = Ray(hitPos, camera_ray.direction);
-        Hit hit = dda(ray, MAX_STEPS);
-        if (hit.hit) {
-            vec2 palette_coord = vec2(float(voxelmap(hit.voxel)) * inv_palette_size);
-            vec3 albedo = texture(u_palette_data, palette_coord).rgb;
-            vec3 color = compute_light(camera_ray, hit.position, hit.normal, albedo, rnd);
-            u_albedo = albedo;
-            u_normal = encodeNormalRGB10A2(hit.normal);
-            gl_FragDepth = worldPosToDepth(hit.position);
-        } else {
-            discard;
-        }
-    } else {
-        discard;
-    }
+    float depth = texture(u_depth, uv).r;
+    vec3 albedo = texture(u_albedo, uv).rgb;
+    vec3 normal = decodeNormalRGB10A2(texture(u_normal, uv).rgb);
+    vec3 pos = reconstructWorldPos(depth);
+    vec3 color = compute_light(uCameraPos, pos, normal, albedo, rnd);
+    fragColor = vec4(color, 1.0);
 }
-
 #endif
