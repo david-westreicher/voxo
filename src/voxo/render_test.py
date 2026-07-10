@@ -15,7 +15,7 @@ from pyglm.glm import mat4x4 as Mat4  # noqa: N812
 
 from .model import parse_model
 
-MODEL_PATH = Path("./resources/models/truck.txt")
+MODEL_PATH = Path("./resources/models/truck_plane.txt")
 SCREEN_DIMENSIONS = (1920, 1080)
 ASPECT_RATIO = SCREEN_DIMENSIONS[0] / SCREEN_DIMENSIONS[1]
 GL_RGB10_A2 = 0x8059
@@ -39,12 +39,17 @@ class CameraWindow(moderngl_window.WindowConfig):  # type: ignore[misc, name-def
             self.camera.key_input(key, action, modifiers)
 
         if action == keys.ACTION_PRESS:
+            if key == keys.LEFT_SHIFT:
+                self.camera.velocity = 1
             if key == keys.C:
                 self.camera_enabled = not self.camera_enabled
                 self.wnd.mouse_exclusivity = self.camera_enabled
                 self.wnd.cursor = not self.camera_enabled
             if key == keys.SPACE:
                 self.timer.toggle_pause()
+
+        if action == keys.ACTION_RELEASE and key == keys.LEFT_SHIFT:
+            self.camera.velocity = 50.0
 
     def on_mouse_position_event(self, x: int, y: int, dx: int, dy: int) -> None:  # noqa: ARG002
         if self.camera_enabled:
@@ -78,7 +83,7 @@ class VoxelRenderer:
         dimensions: tuple[int, int, int],
         palette: bytes,
     ) -> None:
-        self.program: Program = window.load_program("programs/raytrace_voxels.glsl")
+        self.program: Program = window.load_program("programs/gbuffer_create.glsl")
         self.cube = Object(geometry.cube(size=(1, 1, 1)))
         self.cube.translation = glm.translate(glm.vec3(0.0))
         self.cube.scale = glm.scale(glm.vec3(dimensions))
@@ -95,7 +100,7 @@ class VoxelRenderer:
         self.palette_texture.repeat_y = False
         self.palette_texture.repeat_z = False
 
-    def render(self, camera: Camera, time: float) -> None:
+    def render(self, camera: Camera) -> None:
         ctx = self.voxel_texture.ctx
         self.program["m_proj"].write(camera.projection.matrix)  # type:ignore[union-attr]
         self.program["m_model"].write(self.cube.modelview)  # type:ignore[union-attr]
@@ -105,29 +110,11 @@ class VoxelRenderer:
         self.program["uCameraPos"].write(camera.position)  # type:ignore[union-attr]
         self.program["u_voxel_data"].value = 0  # type:ignore[union-attr]
         self.program["u_palette_data"].value = 1  # type:ignore[union-attr]
-        self.program["time"].value = time  # type:ignore[union-attr]
 
         self.voxel_texture.use(location=0)
         self.palette_texture.use(location=1)
         self.cube.geometry.render(self.program)
         ctx.enable(moderngl.DEPTH_TEST)
-
-
-class RenderIntoTexture:
-    def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int]) -> None:  # type: ignore[name-defined]
-        self.framebuffer_texture = window.ctx.texture(size=size, components=3, dtype="f2")
-        self.framebuffer = window.ctx.framebuffer(color_attachments=[self.framebuffer_texture])
-        self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
-        self.program = window.load_program("programs/tonemapping.glsl")
-        self.program["u_texture"].value = 0
-
-    def start(self) -> None:
-        self.framebuffer.clear(0.0, 0.0, 0.0, 0.0)
-        self.framebuffer.use()
-
-    def render(self) -> None:
-        self.framebuffer_texture.use(location=0)
-        self.quad_fs.render(self.program)
 
 
 class GBuffer:
@@ -184,8 +171,9 @@ class GBufferLighting:
         self.framebuffer.use()
 
         self.gbuffer_lighting["uCameraPos"].write(camera.position)  # type:ignore[union-attr]
-        self.gbuffer_lighting["time"].value = time  # type:ignore[union-attr]
-        self.gbuffer_lighting["u_inv_proj_view"].write(glm.inverse(camera.projection.matrix @ camera.matrix))
+        self.gbuffer_lighting["time"].value = time * 50.0  # type:ignore[union-attr]
+        self.gbuffer_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))  # type:ignore[union-attr]
+        self.gbuffer_lighting["uInvView"].write(glm.inverse(camera.matrix))  # type:ignore[union-attr]
         self.gbuffer.albedo_texture.use(location=0)
         self.gbuffer.normal_texture.use(location=1)
         self.gbuffer.depth_texture.use(location=2)
@@ -217,17 +205,6 @@ class GBufferDebug:
         self.quad_fs.render(self.gbuffer_debug)
 
 
-class SkyRenderer:
-    def __init__(self, window: moderngl_window.WindowConfig) -> None:  # type: ignore[name-defined]
-        self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
-        self.program = window.load_program("programs/sky_renderer.glsl")
-
-    def render(self, camera: Camera) -> None:
-        self.program["uInvProjection"].write(glm.inverse(camera.projection.matrix))
-        self.program["uInvView"].write(glm.inverse(camera.matrix))
-        self.quad_fs.render(self.program)
-
-
 class WireFrameBox:
     def __init__(self, window: moderngl_window.WindowConfig, dimensions: tuple[float, float, float]) -> None:  # type: ignore[name-defined]
         self.prog = window.load_program("programs/cube_simple.glsl")
@@ -248,28 +225,19 @@ class WireFrameBox:
         ctx.wireframe = False
 
 
-class Box:
-    def __init__(self, window: moderngl_window.WindowConfig) -> None:  # type: ignore[name-defined]
-        self.prog = window.load_program("programs/test_frag_depth.glsl")
-        self.quad = geometry.quad_fs(normals=False, uvs=True)
-
-    def render(self) -> None:
-        self.quad.render(self.prog)
-
-
-class CubeSimple(CameraWindow):
+class VoxoWindow(CameraWindow):
     gl_version = (4, 6)
     window_size = SCREEN_DIMENSIONS
     title = "voxo"
     resource_dir = Path("resources").resolve()
+    vsync = True
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.wnd.mouse_exclusivity = True
-        self.time = 0
+        self.time = 0.0
 
         model = parse_model(MODEL_PATH)
-        print(model.dimensions)
         self.voxel_renderer = VoxelRenderer(
             self,
             model.generate_voxel_data(),
@@ -284,17 +252,16 @@ class CubeSimple(CameraWindow):
             self.voxel_renderer.voxel_texture,
         )
         self.gbuffer_debug = GBufferDebug(self, self.gbuffer, self.gbuffer_lighting.lighting_texture)
-        self.sky_renderer = SkyRenderer(self)
         self.wireframe_box = WireFrameBox(self, model.opengl_dimensions)
-        self.box = Box(self)
 
     def on_render(self, time: float, frametime: float) -> None:  # noqa: ARG002
-        self.time += 1
+        self.time = time
 
         # Render into HDR framebuffer
         self.gbuffer.start()
-        self.voxel_renderer.render(self.camera, self.time)
+        self.voxel_renderer.render(self.camera)
 
+        # Compute lighting
         self.gbuffer_lighting.render(self.camera, self.time)
 
         # Render framebuffer onto screen
