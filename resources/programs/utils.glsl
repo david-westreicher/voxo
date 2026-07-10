@@ -24,8 +24,7 @@ Ray compute_camera_ray(mat4 uInvProjection, mat4 uInvView, vec3 uCameraPos) {
     return Ray(uCameraPos, normalize((uInvView * eye).xyz));
 }
 
-vec3 skyColor(vec3 rayDir)
-{
+vec3 skyColor(vec3 rayDir) {
     vec3 dir = normalize(rayDir);
 
     // Map y from [-1,1] to [0,1]

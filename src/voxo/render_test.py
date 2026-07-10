@@ -133,14 +133,14 @@ class GBuffer:
         )
 
     def start(self) -> None:
-        ctx = self.framebuffer.ctx
-        # TODO(david): Can i set the self.framebuffer.color_mask here to just clear depth?
-        self.framebuffer.depth_mask = True
-        ctx.enable_only(moderngl.DEPTH_TEST)
-        ctx.depth_func = "1"
+        # clear depth buffer
+        self.framebuffer.color_mask = [(False,) * 4] * 2
         self.framebuffer.clear(depth=1.0)
+
+        ctx = self.framebuffer.ctx
+        ctx.enable_only(moderngl.DEPTH_TEST)
+        self.framebuffer.color_mask = [(True,) * 4] * 2
         self.framebuffer.use()
-        self.framebuffer.depth_mask = True
         self.albedo_texture.use(location=0)
         self.normal_texture.use(location=1)
 
