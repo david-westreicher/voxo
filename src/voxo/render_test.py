@@ -157,10 +157,13 @@ class GBufferLighting:
         self.framebuffer = window.ctx.framebuffer(color_attachments=[self.lighting_texture])
         self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
         self.gbuffer_lighting = window.load_program("programs/gbuffer_lighting.glsl")
+        self.stbnormals = window.load_texture_array("assets/stbn_cosine_normals.png", layers=64)
+        self.stbnormals.filter = (moderngl.NEAREST, moderngl.NEAREST)
         self.gbuffer_lighting["u_albedo"].value = 0
         self.gbuffer_lighting["u_normal"].value = 1
         self.gbuffer_lighting["u_depth"].value = 2
-        self.gbuffer_lighting["u_voxel_data"].value = 3  # type:ignore[union-attr]
+        self.gbuffer_lighting["u_voxel_data"].value = 3
+        self.gbuffer_lighting["u_normals"].value = 4
         self.gbuffer = gbuffer
         self.voxel_texture = voxel_texture
 
@@ -170,14 +173,15 @@ class GBufferLighting:
         self.framebuffer.clear()
         self.framebuffer.use()
 
-        self.gbuffer_lighting["uCameraPos"].write(camera.position)  # type:ignore[union-attr]
-        self.gbuffer_lighting["time"].value = time * 50.0  # type:ignore[union-attr]
-        self.gbuffer_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))  # type:ignore[union-attr]
-        self.gbuffer_lighting["uInvView"].write(glm.inverse(camera.matrix))  # type:ignore[union-attr]
+        self.gbuffer_lighting["uCameraPos"].write(camera.position)
+        self.gbuffer_lighting["time"].value = time * 50.0
+        self.gbuffer_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))
+        self.gbuffer_lighting["uInvView"].write(glm.inverse(camera.matrix))
         self.gbuffer.albedo_texture.use(location=0)
         self.gbuffer.normal_texture.use(location=1)
         self.gbuffer.depth_texture.use(location=2)
         self.voxel_texture.use(location=3)
+        self.stbnormals.use(location=4)
         self.quad_fs.render(self.gbuffer_lighting)
 
 
@@ -268,4 +272,4 @@ class VoxoWindow(CameraWindow):
         self.ctx.screen.clear(0.1, 0.1, 0.1, 1.0)
         self.ctx.screen.use()
         self.gbuffer_debug.render()
-        self.wireframe_box.render(self.camera)
+        # self.wireframe_box.render(self.camera)

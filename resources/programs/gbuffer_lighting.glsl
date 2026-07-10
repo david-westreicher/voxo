@@ -27,10 +27,15 @@ uniform sampler2D u_albedo;
 uniform sampler2D u_normal;
 uniform sampler2D u_depth;
 uniform usampler3D u_voxel_data;
+uniform sampler2DArray u_normals;
 
 const float PI = 3.14159265;
 const int MAX_OCC_SAMPLES = 10;
 const int MAX_OCC_DISTANCE = 20;
+
+int rnd_seed = int(mod(uint(gl_FragCoord.x) +
+                uint(gl_FragCoord.y) * 4097U +
+                uint(time) * 1234567U, 64));
 
 Box bbox = compute_bbox(u_voxel_data);
 vec3 size = bbox.max - bbox.min;
@@ -47,6 +52,33 @@ vec3 decodeNormalRGB10A2(vec3 encoded)
     return normalize(decoded);
 }
 
+vec3 generate_random_normal(inout int seed) {
+    seed = int(mod(seed + 1, 64));
+    vec3 rnd_normal_coord = vec3(mod(gl_FragCoord.xy, 128) / 128.0, seed);
+    return texture(u_normals, rnd_normal_coord).rgb * 2.0 - 1.0;
+}
+
+vec3 tangentToWorld(vec3 surfaceNormal, vec3 normalTS) {
+    vec3 N = normalize(surfaceNormal);
+
+    // Pick an arbitrary vector not parallel to N
+    vec3 up = normalize(cross(N, vec3(0.0, 1.0, 1.0)));
+
+    // Build tangent basis
+    vec3 T = normalize(cross(up, N));
+    vec3 B = cross(N, T);
+
+    // Transform tangent-space normal into world space
+    mat3 TBN = mat3(T, B, N);
+
+    return normalize(TBN * normalTS);
+}
+
+vec3 generate_random_cosine_weighted_normal(vec3 normal, inout int seed) {
+    vec3 normal_tangent = generate_random_normal(seed);
+    return tangentToWorld(normal, normal_tangent);
+}
+
 vec3 reconstructWorldPos(float depth)
 {
     vec2 ndc = uv * 2.0 - 1.0;
@@ -59,17 +91,6 @@ vec3 reconstructWorldPos(float depth)
     return worldPos.xyz / worldPos.w;
 }
 
-vec3 cosineSampleHemisphere(vec3 n, vec2 u) {
-    //TODO(david): Use precomputed blue noise samples
-    float r = sqrt(u.x);
-    float theta = 2.0 * PI * u.y;
-
-    vec3 B = normalize(cross(n, vec3(0.0, 1.0, 1.0)));
-    vec3 T = cross(B, n);
-
-    return normalize(r * sin(theta) * B + sqrt(1.0 - u.x) * n + r * cos(theta) * T);
-}
-
 vec3 compute_light(vec3 camera_pos, vec3 pos, vec3 normal, vec3 albedo, Pcg32State rnd) {
     vec3 ray_start = pos + normal * 0.1;
 
@@ -78,7 +99,7 @@ vec3 compute_light(vec3 camera_pos, vec3 pos, vec3 normal, vec3 albedo, Pcg32Sta
     for (int occ_sample; occ_sample < MAX_OCC_SAMPLES; occ_sample += 1) {
         vec3 jitter_point = (pcg_random_vec3(rnd) - 0.5);
         vec3 jitter = jitter_point - normal * dot(jitter_point, normal);
-        Ray occ_ray = Ray(ray_start + jitter, cosineSampleHemisphere(normal, pcg_random_vec2(rnd)));
+        Ray occ_ray = Ray(ray_start + jitter, generate_random_cosine_weighted_normal(normal, rnd_seed));
         Hit occ_hit = dda(occ_ray, MAX_OCC_DISTANCE, u_voxel_data, bbox);
         if (occ_hit.hit) {
             ambient_gathered += clamp(occ_hit.t, 0, MAX_OCC_DISTANCE);
@@ -138,6 +159,7 @@ void main() {
     vec3 normal = decodeNormalRGB10A2(texture(u_normal, uv).rgb);
     vec3 pos = reconstructWorldPos(depth);
     vec3 color = compute_light(uCameraPos, pos, normal, albedo, rnd);
+
     fragColor = vec4(color, 1.0);
 }
 #endif
