@@ -19,7 +19,7 @@ uniform sampler2D u_albedo;
 uniform sampler2D u_normal;
 uniform sampler2D u_depth;
 uniform sampler2D u_lighting;
-uniform float full;
+uniform bool full;
 const float exposure = 1.0;
 
 in vec2 uv;
@@ -66,10 +66,10 @@ void main() {
             color = normal * 0.5 + 0.5;
         }
     }
-    if (full > 0) {
-        fragColor = vec4(color, 1.0);
-    } else {
+    if (full) {
         fragColor = vec4(tonemap(texture(u_lighting, uv).rgb), 1.0);
+    } else {
+        fragColor = vec4(color, 1.0);
     }
 }
 #endif

@@ -24,6 +24,8 @@ uniform mat4 uInvView;
 uniform mat4 uInvProjection;
 uniform usampler3D u_voxel_data;
 uniform sampler2D u_palette_data;
+uniform mat4 m_model;
+uniform mat4 m_model_inverse;
 uniform mat4 m_camera;
 uniform mat4 m_proj;
 
@@ -43,25 +45,25 @@ float worldPosToDepth(vec3 worldPos) {
     return ndcDepth * 0.5 + 0.5;
 }
 
-vec3 encodeNormalRGB10A2(vec3 normal)
-{
+vec3 encodeNormalRGB10A2(vec3 normal) {
     return normal * 0.5 + 0.5;
 }
 
 void main() {
     Ray camera_ray = compute_camera_ray(uInvProjection, uInvView, uCameraPos);
+    Ray local_ray = transform_to_local_ray(camera_ray, m_model_inverse);
 
     float t;
-    if (intersectAABB(camera_ray, bbox, t)) {
-        vec3 hitPos = camera_ray.origin + (t - 0.01) * camera_ray.direction;
-        Ray ray = Ray(hitPos, camera_ray.direction);
-        Hit hit = dda(ray, MAX_STEPS, u_voxel_data, bbox);
+    if (intersectAABB(local_ray, bbox, t)) {
+        vec3 bbox_hit = local_ray.origin + (t - 0.01) * local_ray.direction;
+        Ray bbox_ray = Ray(bbox_hit, local_ray.direction);
+        Hit hit = dda(bbox_ray, MAX_STEPS, u_voxel_data, bbox);
         if (hit.hit) {
             vec2 palette_coord = vec2(float(voxelmap(hit.voxel, bbox, u_voxel_data)) * inv_palette_size);
-            vec3 albedo = texture(u_palette_data, palette_coord).rgb;
-            u_albedo = albedo;
-            u_normal = encodeNormalRGB10A2(hit.normal);
-            gl_FragDepth = worldPosToDepth(hit.position);
+            u_albedo = texture(u_palette_data, palette_coord).rgb;
+            u_normal = encodeNormalRGB10A2(normalize((m_model * vec4(hit.normal, 0.0)).xyz));
+            vec3 world_space_hit = (m_model * vec4(hit.position, 1.0)).xyz;
+            gl_FragDepth = worldPosToDepth(world_space_hit);
         } else {
             discard;
         }

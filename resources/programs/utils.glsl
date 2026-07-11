@@ -1,3 +1,5 @@
+# line 0
+
 struct Hit {
     bool hit;
     float t;
@@ -129,4 +131,10 @@ Box compute_bbox(sampler3D data_3d) {
     vec3 boxMin = -size * 0.5;
     vec3 boxMax = size * 0.5;
     return Box(boxMin, boxMax);
+}
+
+Ray transform_to_local_ray(Ray world_ray, mat4 model_inverse) {
+    vec3 origin = (model_inverse * vec4(world_ray.origin, 1.0)).xyz;
+    vec3 direction = normalize((model_inverse * vec4(world_ray.direction, 0.0)).xyz);
+    return Ray(origin, direction);
 }

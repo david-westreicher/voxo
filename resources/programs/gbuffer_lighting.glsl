@@ -28,6 +28,8 @@ uniform sampler2D u_normal;
 uniform sampler2D u_depth;
 uniform usampler3D u_voxel_data;
 uniform sampler2DArray u_normals;
+uniform mat4 m_model_inverse;
+uniform vec3 lightPos;
 
 const float PI = 3.14159265;
 const int MAX_OCC_SAMPLES = 10;
@@ -40,8 +42,6 @@ int rnd_seed = int(mod(uint(gl_FragCoord.x) +
 Box bbox = compute_bbox(u_voxel_data);
 vec3 size = bbox.max - bbox.min;
 int MAX_STEPS = int(max(size.x, max(size.y, size.z))) * 3;
-
-vec3 lightPos = vec3(sin(time * 0.01), 0.5, cos(time * 0.01)) * MAX_STEPS * 2.0;
 
 out vec4 fragColor;
 
@@ -91,7 +91,7 @@ vec3 reconstructWorldPos(float depth)
     return worldPos.xyz / worldPos.w;
 }
 
-vec3 compute_light(vec3 camera_pos, vec3 pos, vec3 normal, vec3 albedo, Pcg32State rnd) {
+vec3 compute_light(vec3 camera_pos, vec3 pos, vec3 normal, vec3 light_pos, vec3 albedo, Pcg32State rnd) {
     vec3 ray_start = pos + normal * 0.1;
 
     // Ambient Occlusion
@@ -112,20 +112,20 @@ vec3 compute_light(vec3 camera_pos, vec3 pos, vec3 normal, vec3 albedo, Pcg32Sta
     vec3 ambientColor = skyColor(normal);
     float occlusion = ambient_gathered / (MAX_OCC_SAMPLES * MAX_OCC_DISTANCE);
     occlusion *= occlusion;
-    vec3 ambient = albedo * ambientColor * occlusion;
+    vec3 ambient = albedo * ambientColor * occlusion * 0.5;
 
     // Sun ray
-    vec3 L = normalize(lightPos - pos); // direction to light
+    vec3 L = normalize(light_pos - pos); // direction to light
     Ray sun_ray = Ray(ray_start, L);
     Hit sun_hit = dda(sun_ray, MAX_STEPS, u_voxel_data, bbox);
-    //return vec3(occlusion) + albedo * 0.00001 + camera_pos * 0.000001;
+    //return vec3(albedo) + albedo * 0.00001 + camera_pos * 0.000001;
     if (sun_hit.hit) {
         return ambient;
     } else {
-        vec3 lightColor = vec3(20.0, 18.0, 15.0) * MAX_STEPS * MAX_STEPS * 0.5;
-        float shininess = 60;
+        vec3 lightColor = vec3(20.0, 18.0, 15.0) * 500.0;
+        float shininess = 1000.0;
 
-        float distance = length(lightPos - pos);
+        float distance = length(light_pos - pos);
         // Lambert cosine term
         float NdotL = max(dot(normal, L), 0.0);
 
@@ -158,7 +158,12 @@ void main() {
     vec3 albedo = texture(u_albedo, uv).rgb;
     vec3 normal = decodeNormalRGB10A2(texture(u_normal, uv).rgb);
     vec3 pos = reconstructWorldPos(depth);
-    vec3 color = compute_light(uCameraPos, pos, normal, albedo, rnd);
+    // TODO(david): Local transformation can be removed as soon we have a global occluder (without transform)
+    vec3 local_camera = (m_model_inverse * vec4(uCameraPos, 1.0)).xyz;
+    vec3 local_pos = (m_model_inverse * vec4(pos, 1.0)).xyz;
+    vec3 local_normal = normalize((m_model_inverse * vec4(normal, 0.0)).xyz);
+    vec3 local_light_pos = (m_model_inverse * vec4(lightPos, 1.0)).xyz;
+    vec3 color = compute_light(local_camera, local_pos, local_normal, local_light_pos, albedo, rnd);
 
     fragColor = vec4(color, 1.0);
 }
