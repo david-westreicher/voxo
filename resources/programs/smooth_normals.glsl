@@ -24,9 +24,9 @@ uniform mat4 uInvProjection;
 
 out vec4 fragColor;
 
-const int RADIUS = 3; // 11x11 kernel
+const int RADIUS = 3;
 const float SIGMA = 3.0;
-const float depth_mix = 100.0;
+const float MAX_DEPTH = 100.0;
 vec2 texel_size = 1.0 / vec2(textureSize(input_texture, 0));
 
 float gaussian(vec2 p) {
@@ -53,8 +53,10 @@ vec3 blur(vec2 uv) {
     vec3 color = vec3(0.0);
     float weight_sum = 0.0;
     float center_depth = texture(depth_texture, uv).r;
-    float mix_ratio = min(1.0, center_depth / depth_mix);
     vec3 center_normal = texture(input_texture, uv).rgb;
+    if (center_depth >= MAX_DEPTH) {
+        return center_normal;
+    }
     vec3 center_normal_decoded = decodeNormalRGB10A2(center_normal);
     vec3 center_pos = reconstructWorldPos(uv, center_depth);
 
@@ -67,6 +69,7 @@ vec3 blur(vec2 uv) {
             float sample_depth = texture(depth_texture, sample_uv).r;
             vec3 sample_pos = reconstructWorldPos(sample_uv, sample_depth);
             float depth_diff = abs(sample_depth - center_depth);
+            // reject concave and far samples
             if (dot((sample_pos - center_pos), center_normal_decoded) > 0.001 || depth_diff > 0.1) {
                 continue;
             }
@@ -76,11 +79,11 @@ vec3 blur(vec2 uv) {
         }
     }
 
+    float mix_ratio = min(1.0, center_depth / MAX_DEPTH);
     return mix(color / weight_sum, center_normal, mix_ratio);
 }
 
 void main() {
-    float center_depth = texture(depth_texture, uv).r;
     fragColor = vec4(blur(uv), 1.0);
 }
 #endif
