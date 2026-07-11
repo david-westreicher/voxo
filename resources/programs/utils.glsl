@@ -18,8 +18,26 @@ struct Box {
     vec3 max;
 };
 
-Ray compute_camera_ray(mat4 uInvProjection, mat4 uInvView, vec3 uCameraPos) {
-    vec2 ndc = gl_FragCoord.xy / vec2(1920, 1080) * 2.0 - 1.0;
+float halton(int base, int index) {
+    float result = 0.;
+    float f = 1.;
+    while (index > 0)
+    {
+        f = f / float(base);
+        result += f * float(index % base);
+        index = index / base;
+    }
+    return result;
+}
+
+vec2 halton2D(int frame_counter) {
+    frame_counter = frame_counter % 32;
+    return vec2(halton(2, frame_counter), halton(3, frame_counter));
+}
+
+Ray compute_camera_ray(mat4 uInvProjection, mat4 uInvView, vec3 uCameraPos, int frame_counter) {
+    vec2 jitter = halton2D(frame_counter) - vec2(0.5);
+    vec2 ndc = (gl_FragCoord.xy + jitter) / vec2(1920, 1080) * 2.0 - 1.0;
     vec4 clip = vec4(ndc, -1.0, 1.0);
     vec4 eye = uInvProjection * clip;
     eye = vec4(eye.xy, -1.0, 0.0);

@@ -44,7 +44,7 @@ void main() {
     {
         if (uv.y < 0.5)
         {
-            float depth = texture(u_depth, local).r;
+            float depth = texture(u_depth, local).r / 1000.0;
             color = vec3(depth);
         }
         else
