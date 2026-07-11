@@ -28,6 +28,7 @@ uniform mat4 m_model;
 uniform mat4 m_model_inverse;
 uniform mat4 m_camera;
 uniform mat4 m_proj;
+uniform int frame_counter;
 
 Box bbox = compute_bbox(u_voxel_data);
 vec3 size = bbox.max - bbox.min;
@@ -36,6 +37,7 @@ float inv_palette_size = 1.0 / (textureSize(u_palette_data, 0).r - 1.0);
 
 layout(location = 0) out vec3 u_albedo;
 layout(location = 1) out vec3 u_normal;
+layout(location = 2) out float u_linear_depth;
 
 float worldPosToDepth(vec3 worldPos) {
     mat4 viewProj = m_proj * m_camera;
@@ -50,7 +52,7 @@ vec3 encodeNormalRGB10A2(vec3 normal) {
 }
 
 void main() {
-    Ray camera_ray = compute_camera_ray(uInvProjection, uInvView, uCameraPos);
+    Ray camera_ray = compute_camera_ray(uInvProjection, uInvView, uCameraPos, frame_counter);
     Ray local_ray = transform_to_local_ray(camera_ray, m_model_inverse);
 
     float t;
@@ -62,6 +64,7 @@ void main() {
             vec2 palette_coord = vec2(float(voxelmap(hit.voxel, bbox, u_voxel_data)) * inv_palette_size);
             u_albedo = texture(u_palette_data, palette_coord).rgb;
             u_normal = encodeNormalRGB10A2(normalize((m_model * vec4(hit.normal, 0.0)).xyz));
+            u_linear_depth = distance(local_ray.origin, hit.position);
             vec3 world_space_hit = (m_model * vec4(hit.position, 1.0)).xyz;
             gl_FragDepth = worldPosToDepth(world_space_hit);
         } else {

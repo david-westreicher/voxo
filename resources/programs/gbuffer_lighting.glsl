@@ -22,7 +22,6 @@ in vec2 uv;
 uniform vec3 uCameraPos;
 uniform mat4 uInvView;
 uniform mat4 uInvProjection;
-uniform float time;
 uniform sampler2D u_albedo;
 uniform sampler2D u_normal;
 uniform sampler2D u_depth;
@@ -30,14 +29,14 @@ uniform usampler3D u_voxel_data;
 uniform sampler2DArray u_normals;
 uniform mat4 m_model_inverse;
 uniform vec3 lightPos;
+uniform int frame_counter;
 
 const float PI = 3.14159265;
 const int MAX_OCC_SAMPLES = 10;
 const int MAX_OCC_DISTANCE = 20;
 
-int rnd_seed = int(mod(uint(gl_FragCoord.x) +
-                uint(gl_FragCoord.y) * 4097U +
-                uint(time) * 1234567U, 64));
+uint rnd_seed = uint(gl_FragCoord.x) + uint(gl_FragCoord.y) * 4097U + uint(frame_counter) * 1234567U;
+int normal_rand_state = int(rnd_seed) % 64;
 
 Box bbox = compute_bbox(u_voxel_data);
 vec3 size = bbox.max - bbox.min;
@@ -53,7 +52,7 @@ vec3 decodeNormalRGB10A2(vec3 encoded)
 }
 
 vec3 generate_random_normal(inout int seed) {
-    seed = int(mod(seed + 1, 64));
+    seed = (seed + 1) % 64;
     vec3 rnd_normal_coord = vec3(mod(gl_FragCoord.xy, 128) / 128.0, seed);
     return texture(u_normals, rnd_normal_coord).rgb * 2.0 - 1.0;
 }
@@ -99,7 +98,7 @@ vec3 compute_light(vec3 camera_pos, vec3 pos, vec3 normal, vec3 light_pos, vec3 
     for (int occ_sample; occ_sample < MAX_OCC_SAMPLES; occ_sample += 1) {
         vec3 jitter_point = (pcg_random_vec3(rnd) - 0.5);
         vec3 jitter = jitter_point - normal * dot(jitter_point, normal);
-        Ray occ_ray = Ray(ray_start + jitter, generate_random_cosine_weighted_normal(normal, rnd_seed));
+        Ray occ_ray = Ray(ray_start + jitter, generate_random_cosine_weighted_normal(normal, normal_rand_state));
         Hit occ_hit = dda(occ_ray, MAX_OCC_DISTANCE, u_voxel_data, bbox);
         if (occ_hit.hit) {
             ambient_gathered += clamp(occ_hit.t, 0, MAX_OCC_DISTANCE);
@@ -118,7 +117,7 @@ vec3 compute_light(vec3 camera_pos, vec3 pos, vec3 normal, vec3 light_pos, vec3 
     vec3 L = normalize(light_pos - pos); // direction to light
     Ray sun_ray = Ray(ray_start, L);
     Hit sun_hit = dda(sun_ray, MAX_STEPS, u_voxel_data, bbox);
-    //return vec3(albedo) + albedo * 0.00001 + camera_pos * 0.000001;
+    //return vec3(occlusion) + albedo * 0.00001 + camera_pos * 0.000001;
     if (sun_hit.hit) {
         return ambient;
     } else {
@@ -145,11 +144,9 @@ vec3 compute_light(vec3 camera_pos, vec3 pos, vec3 normal, vec3 light_pos, vec3 
 }
 
 void main() {
-    Pcg32State rnd = pcg_srandom(uint(gl_FragCoord.x) +
-                uint(gl_FragCoord.y) * 4097U +
-                uint(time) * 1234567U);
+    Pcg32State rnd = pcg_srandom(rnd_seed);
 
-    Ray camera_ray = compute_camera_ray(uInvProjection, uInvView, uCameraPos);
+    Ray camera_ray = compute_camera_ray(uInvProjection, uInvView, uCameraPos, frame_counter);
     float depth = texture(u_depth, uv).r;
     if (depth == 1.0) {
         fragColor = vec4(skyColor(camera_ray.direction), 1.0);

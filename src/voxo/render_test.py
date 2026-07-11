@@ -126,7 +126,7 @@ class VoxelRenderer:
     def __init__(self, window: WindowConfig) -> None:
         self.program: Program = window.load_program("programs/gbuffer_create.glsl")
 
-    def render(self, camera: Camera, voxel_object: VoxelObject) -> None:
+    def render(self, camera: Camera, voxel_object: VoxelObject, frame_counter: int) -> None:
         ctx = voxel_object.voxel_texture.ctx
         self.program["m_proj"].write(camera.projection.matrix)  # type:ignore[union-attr]
         self.program["m_model"].write(voxel_object.transform)  # type:ignore[union-attr]
@@ -137,6 +137,7 @@ class VoxelRenderer:
         self.program["uCameraPos"].write(camera.position)  # type:ignore[union-attr]
         self.program["u_voxel_data"].value = 0  # type:ignore[union-attr]
         self.program["u_palette_data"].value = 1  # type:ignore[union-attr]
+        self.program["frame_counter"].value = frame_counter  # type:ignore[union-attr]
 
         voxel_object.voxel_texture.use(location=0)
         voxel_object.palette_texture.use(location=1)
@@ -148,28 +149,56 @@ class GBuffer:
     def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int]) -> None:  # type: ignore[name-defined]
         self.albedo_texture = window.ctx.texture(size=size, components=3, dtype="f2")
         self.normal_texture = window.ctx.texture(size=size, components=3, internal_format=GL_RGB10_A2)
-        self.depth_texture = window.ctx.depth_texture(size=size)
+        self.smooth_normal_texture = window.ctx.texture(size=size, components=3, internal_format=GL_RGB10_A2)
         # NOTE(david): internally uses GL_DEPTH_COMPONENT24 but we want GL_DEPTH_COMPONENT32F
+        self.depth_texture = window.ctx.depth_texture(size=size)
+        self.linear_depth = window.ctx.texture(size=size, components=1, dtype="f2")
 
         self.framebuffer = window.ctx.framebuffer(
             color_attachments=[
                 self.albedo_texture,
                 self.normal_texture,
+                self.linear_depth,
             ],
             depth_attachment=self.depth_texture,
         )
+        self.normal_smoother = SmoothNormals(window, self.smooth_normal_texture)
 
     def start(self) -> None:
         # clear depth buffer
-        self.framebuffer.color_mask = [(False,) * 4] * 2
+        self.framebuffer.color_mask = [(False,) * 4] * 3
         self.framebuffer.clear(depth=1.0)
 
         ctx = self.framebuffer.ctx
         ctx.enable_only(moderngl.DEPTH_TEST)
-        self.framebuffer.color_mask = [(True,) * 4] * 2
+        self.framebuffer.color_mask = [(True,) * 4] * 3
         self.framebuffer.use()
         self.albedo_texture.use(location=0)
         self.normal_texture.use(location=1)
+        self.linear_depth.use(location=2)
+
+    def smooth_normals(self, camera: Camera) -> None:
+        self.normal_smoother.render(self.normal_texture, self.linear_depth, camera)
+
+
+class SmoothNormals:
+    def __init__(self, window: moderngl_window.WindowConfig, output_texture: Texture) -> None:  # type: ignore[name-defined]
+        self.program = window.load_program("programs/smooth_normals.glsl")
+        self.program["input_texture"].value = 0
+        self.program["depth_texture"].value = 1
+        self.quad = geometry.quad_fs(normals=False, uvs=True)
+        self.framebuffer = window.ctx.framebuffer(color_attachments=[output_texture])
+
+    def render(self, input_texture: Texture, depth_texture: Texture, camera: Camera) -> None:
+        self.program["uInvProjection"].write(glm.inverse(camera.projection.matrix))
+        self.program["uInvView"].write(glm.inverse(camera.matrix))
+        ctx = self.framebuffer.ctx
+        ctx.disable(moderngl.DEPTH_TEST)
+
+        self.framebuffer.use()
+        input_texture.use(location=0)
+        depth_texture.use(location=1)
+        self.quad.render(self.program)
 
 
 class GBufferLighting:
@@ -195,7 +224,7 @@ class GBufferLighting:
         camera: Camera,
         gbuffer: GBuffer,
         voxel_texture: Texture3D,
-        time: float,
+        frame_counter: int,
         light_pos: Vec3,
         voxel_model_view: Mat4,
     ) -> None:
@@ -205,14 +234,14 @@ class GBufferLighting:
         self.framebuffer.use()
 
         self.gbuffer_lighting["uCameraPos"].write(camera.position)
-        self.gbuffer_lighting["time"].value = time * 50.0
+        self.gbuffer_lighting["frame_counter"].value = frame_counter
         self.gbuffer_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.gbuffer_lighting["uInvView"].write(glm.inverse(camera.matrix))
         # TODO(david): Local transformation can be removed as soon we have a global occluder (without transform)
         self.gbuffer_lighting["m_model_inverse"].write(glm.inverse(voxel_model_view))
         self.gbuffer_lighting["lightPos"].write(light_pos)
         gbuffer.albedo_texture.use(location=0)
-        gbuffer.normal_texture.use(location=1)
+        gbuffer.smooth_normal_texture.use(location=1)
         gbuffer.depth_texture.use(location=2)
         voxel_texture.use(location=3)
         self.stbnormals.use(location=4)
@@ -237,8 +266,8 @@ class GBufferDebug:
 
     def render(self, *, debug: bool) -> None:
         self.gbuffer.albedo_texture.use(location=0)
-        self.gbuffer.normal_texture.use(location=1)
-        self.gbuffer.depth_texture.use(location=2)
+        self.gbuffer.smooth_normal_texture.use(location=1)
+        self.gbuffer.linear_depth.use(location=2)
         self.gbuffer_lighting.use(location=3)
         self.gbuffer_debug["full"].value = not debug
         self.quad_fs.render(self.gbuffer_debug)
@@ -272,6 +301,7 @@ class VoxoWindow(CameraWindow):
         super().__init__(**kwargs)
         self.wnd.mouse_exclusivity = True
         self.time = 0.0
+        self.frame_counter = 0
         self.debug = False
 
         self.voxel_objects = [VoxelObject(model=parse_model(MODEL_PATH)), VoxelObject(model=parse_model(DWARF))]
@@ -292,6 +322,7 @@ class VoxoWindow(CameraWindow):
 
     def on_render(self, time: float, frametime: float) -> None:  # noqa: ARG002
         self.time = time
+        self.frame_counter += 1
         if self.timer.is_running:
             self.voxel_objects[0].rotate(0.001, glm.vec3(0, 1, 0))
             self.voxel_objects[1].translation = glm.vec3(0, 40, 0)
@@ -301,14 +332,15 @@ class VoxoWindow(CameraWindow):
         # Render into HDR framebuffer
         self.gbuffer.start()
         for voxel_object in self.voxel_objects:
-            self.voxel_renderer.render(self.camera, voxel_object)
+            self.voxel_renderer.render(self.camera, voxel_object, self.frame_counter)
 
         # Compute lighting
+        self.gbuffer.smooth_normals(self.camera)
         self.gbuffer_lighting.render(
             self.camera,
             self.gbuffer,
             self.voxel_objects[0].voxel_texture,
-            self.time,
+            self.frame_counter,
             self.light.translation,
             self.voxel_objects[0].transform,
         )
