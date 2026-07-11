@@ -66,12 +66,11 @@ vec3 blur(vec2 uv) {
             vec2 sample_uv = uv + p * texel_size;
             float sample_depth = texture(depth_texture, sample_uv).r;
             vec3 sample_pos = reconstructWorldPos(sample_uv, sample_depth);
-            if (dot((sample_pos - center_pos), center_normal_decoded) > 0.001) {
+            float depth_diff = abs(sample_depth - center_depth);
+            if (dot((sample_pos - center_pos), center_normal_decoded) > 0.001 || depth_diff > 0.1) {
                 continue;
             }
-            float depth_diff = abs(sample_depth - center_depth);
-            float depth_w = max(0.0, 1.0 - depth_diff);
-            float w = gaussian(p) * depth_w;
+            float w = gaussian(p);
             color += texture(input_texture, sample_uv).rgb * w;
             weight_sum += w;
         }
