@@ -35,9 +35,9 @@ vec2 halton2D(int frame_counter) {
     return vec2(halton(2, frame_counter), halton(3, frame_counter));
 }
 
-Ray compute_camera_ray(mat4 uInvProjection, mat4 uInvView, vec3 uCameraPos, int frame_counter) {
+Ray compute_camera_ray(mat4 uInvProjection, mat4 uInvView, vec3 uCameraPos, int frame_counter, float jitter_scale) {
     vec2 jitter = halton2D(frame_counter) - vec2(0.5);
-    vec2 ndc = (gl_FragCoord.xy + jitter) / vec2(1920, 1080) * 2.0 - 1.0;
+    vec2 ndc = (gl_FragCoord.xy + jitter * jitter_scale) / vec2(1920, 1080) * 2.0 - 1.0;
     vec4 clip = vec4(ndc, -1.0, 1.0);
     vec4 eye = uInvProjection * clip;
     eye = vec4(eye.xy, -1.0, 0.0);

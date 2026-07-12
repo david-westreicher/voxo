@@ -18,6 +18,7 @@ out vec4 fragColor;
 uniform sampler2D u_albedo;
 uniform sampler2D u_normal;
 uniform sampler2D u_depth;
+uniform sampler2D u_motion_vectors;
 uniform sampler2D u_lighting;
 uniform bool full;
 const float exposure = 1.0;
@@ -49,7 +50,9 @@ void main() {
         }
         else
         {
-            color = texture(u_albedo, local).rgb;
+            vec3 motion = abs(texture(u_motion_vectors, local).rgb) * 10.0;
+            vec3 albedo = texture(u_albedo, local).rgb;
+            color = mix(albedo, motion, 0.00001);
         }
     }
     else

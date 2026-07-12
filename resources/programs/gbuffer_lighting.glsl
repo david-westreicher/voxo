@@ -26,17 +26,24 @@ uniform sampler2D u_albedo;
 uniform sampler2D u_normal;
 uniform sampler2D u_depth;
 uniform usampler3D u_voxel_data;
+uniform sampler2D u_motion_vector;
+uniform sampler2D u_last_frame;
 uniform sampler2DArray u_normals;
+uniform sampler2DArray u_random_vec2;
+uniform sampler2D u_last_frame_depth;
 uniform mat4 m_model_inverse;
 uniform vec3 lightPos;
 uniform int frame_counter;
 
 const float PI = 3.14159265;
-const int MAX_OCC_SAMPLES = 10;
-const int MAX_OCC_DISTANCE = 20;
+const int MAX_OCC_SAMPLES = 2;
+const int MAX_OCC_DISTANCE = 40;
+float LIGHT_RADIUS = 10.0;
 
-uint rnd_seed = uint(gl_FragCoord.x) + uint(gl_FragCoord.y) * 4097U + uint(frame_counter) * 1234567U;
+uint rnd_seed = uint(gl_FragCoord.x) + uint(gl_FragCoord.y) * 4097U + uint(frame_counter);
 int normal_rand_state = int(rnd_seed) % 64;
+int light_rand_state = int(rnd_seed) % 64;
+vec2 texel_size = 1.0 / vec2(textureSize(u_albedo, 0));
 
 Box bbox = compute_bbox(u_voxel_data);
 vec3 size = bbox.max - bbox.min;
@@ -55,6 +62,12 @@ vec3 generate_random_normal(inout int seed) {
     seed = (seed + 1) % 64;
     vec3 rnd_normal_coord = vec3(mod(gl_FragCoord.xy, 128) / 128.0, seed);
     return texture(u_normals, rnd_normal_coord).rgb * 2.0 - 1.0;
+}
+
+vec2 generate_random_vec2(inout int seed) {
+    seed = (seed + 1) % 64;
+    vec3 rnd_normal_coord = vec3(mod(gl_FragCoord.xy, 128) / 128.0, seed);
+    return texture(u_random_vec2, rnd_normal_coord).rg;
 }
 
 vec3 tangentToWorld(vec3 surfaceNormal, vec3 normalTS) {
@@ -90,6 +103,18 @@ vec3 reconstructWorldPos(float depth)
     return worldPos.xyz / worldPos.w;
 }
 
+vec3 sample_disk_light(vec3 lightPos, vec3 lightNormal, float radius, vec2 xi) {
+    float r = radius * sqrt(xi.x);
+    float phi = 2.0 * PI * xi.y;
+
+    vec3 T = normalize(cross(lightNormal, abs(lightNormal.y) < 0.99 ? vec3(0, 1, 0) : vec3(1, 0, 0)));
+    vec3 B = cross(lightNormal, T);
+
+    return lightPos +
+        T * (r * cos(phi)) +
+        B * (r * sin(phi));
+}
+
 vec3 compute_light(vec3 camera_pos, vec3 pos, vec3 normal, vec3 light_pos, vec3 albedo, Pcg32State rnd) {
     vec3 ray_start = pos + normal * 0.1;
 
@@ -114,13 +139,13 @@ vec3 compute_light(vec3 camera_pos, vec3 pos, vec3 normal, vec3 light_pos, vec3 
     vec3 ambient = albedo * ambientColor * occlusion * 0.5;
 
     // Sun ray
+    vec3 light_center = sample_disk_light(light_pos, normalize(pos - light_pos), LIGHT_RADIUS, generate_random_vec2(light_rand_state));
     vec3 L = normalize(light_pos - pos); // direction to light
-    Ray sun_ray = Ray(ray_start, L);
+    Ray sun_ray = Ray(ray_start, normalize(light_center - ray_start));
     Hit sun_hit = dda(sun_ray, MAX_STEPS, u_voxel_data, bbox);
     //return vec3(occlusion) + albedo * 0.00001 + camera_pos * 0.000001;
-    if (sun_hit.hit) {
-        return ambient;
-    } else {
+    vec3 color = ambient;
+    if (!sun_hit.hit) {
         vec3 lightColor = vec3(20.0, 18.0, 15.0) * 500.0;
         float shininess = 1000.0;
 
@@ -139,14 +164,15 @@ vec3 compute_light(vec3 camera_pos, vec3 pos, vec3 normal, vec3 light_pos, vec3 
         float spec = pow(NdotH, shininess);
         vec3 specular = lightColor * spec * attenuation;
 
-        return ambient + diffuse + specular;
+        color += diffuse + specular * 0.000001;
     }
+    return color;
 }
 
 void main() {
     Pcg32State rnd = pcg_srandom(rnd_seed);
 
-    Ray camera_ray = compute_camera_ray(uInvProjection, uInvView, uCameraPos, frame_counter);
+    Ray camera_ray = compute_camera_ray(uInvProjection, uInvView, uCameraPos, frame_counter, 0.0);
     float depth = texture(u_depth, uv).r;
     if (depth == 1.0) {
         fragColor = vec4(skyColor(camera_ray.direction), 1.0);
@@ -162,6 +188,15 @@ void main() {
     vec3 local_light_pos = (m_model_inverse * vec4(lightPos, 1.0)).xyz;
     vec3 color = compute_light(local_camera, local_pos, local_normal, local_light_pos, albedo, rnd);
 
-    fragColor = vec4(color, 1.0);
+    vec2 last_frame_uv = uv + texture(u_motion_vector, uv).rg;
+    float last_frame_depth = texture(u_last_frame_depth, last_frame_uv).r;
+    float current_depth = distance(camera_ray.origin, pos);
+    bool outside = any(lessThanEqual(last_frame_uv, texel_size * 2.0)) || any(greaterThanEqual(last_frame_uv, vec2(1.0) - texel_size * 2.0));
+    if (outside || abs(last_frame_depth - current_depth) > 1.0) {
+        fragColor = vec4(color, 1.0);
+    } else {
+        vec3 last_frame_color = texture(u_last_frame, last_frame_uv).rgb;
+        fragColor = vec4(mix(color, last_frame_color, 0.9), 1.0);
+    }
 }
 #endif
