@@ -6,9 +6,14 @@ VoxelInfo = tuple[int, int, int, int]  # x, y, z, color index
 
 @dataclass
 class Model:
+    path: Path
     palette: list[tuple[int, int, int]]
     voxels: list[VoxelInfo]
     dimensions: tuple[int, int, int] = (0, 0, 0)
+
+    @property
+    def name(self) -> str:
+        return self.path.with_suffix("").name
 
     @property
     def opengl_dimensions(self) -> tuple[int, int, int]:
@@ -74,4 +79,4 @@ def parse_model(model_path: Path) -> Model:
     hex_palette = sorted({col for _, _, _, col in voxels})
     palette = sorted(convert_hex_to_rgb(col) for col in hex_palette)
     voxels = [(x, y, z, hex_palette.index(col)) for x, y, z, col in voxels]
-    return Model(palette=palette, voxels=voxels)
+    return Model(path=model_path, palette=palette, voxels=voxels)

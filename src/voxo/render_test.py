@@ -1,11 +1,12 @@
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from functools import cached_property
 from pathlib import Path
 from typing import Any, cast
 
 import moderngl
 import moderngl_window
-from moderngl import Context, Framebuffer, Program, Texture, Texture3D
+from moderngl import ComputeShader, Context, Framebuffer, Program, Texture, Texture3D
 from moderngl_window import geometry
 from moderngl_window.context.base import KeyModifiers, WindowConfig
 from moderngl_window.opengl.vao import VAO
@@ -18,12 +19,20 @@ from pyglm.glm import vec3 as Vec3  # noqa: N812
 
 from .model import Model, parse_model
 
-MODEL_PATH = Path("./resources/models/truck_plane2.txt")
+MODEL_PATH = Path("./resources/models/truck.txt")
 DWARF = Path("./resources/models/dwarf.txt")
 SCREEN_DIMENSIONS = (1920, 1080)
+GLOBAL_OCCLUDER_DIMENSIONS = (256, 256, 256)
+CENTER = glm.vec3(GLOBAL_OCCLUDER_DIMENSIONS) * 0.5
+CENTER_GROUND = glm.vec3(GLOBAL_OCCLUDER_DIMENSIONS) * 0.5
+CENTER_GROUND.y = 0
 ASPECT_RATIO = SCREEN_DIMENSIONS[0] / SCREEN_DIMENSIONS[1]
 GL_RGB10_A2 = 0x8059
 GL_DEPTH_COMPONENT32F = 0x8CAC
+
+GLOBAL_DEFINE = {
+    "SCREEN_DIMENSIONS": f"vec2({SCREEN_DIMENSIONS[0]}, {SCREEN_DIMENSIONS[1]})",
+}
 
 
 class CameraWindow(moderngl_window.WindowConfig):  # type: ignore[misc, name-defined]
@@ -100,6 +109,7 @@ class VoxelObject(Object):
             alignment=1,
             dtype="u1",
         )
+        self._voxel_texture.label = f"tex3d_model_{self.model.name}"
         self._voxel_texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
         self._voxel_texture.repeat_x = False
         self._voxel_texture.repeat_y = False
@@ -122,9 +132,62 @@ class VoxelObject(Object):
         return self._palette_texture
 
 
+class GlobalOccluder:
+    def __init__(self, window: WindowConfig, dimensions: tuple[int, int, int]) -> None:
+        self.dimensions = dimensions
+        defines = {"GLOBAL_DIMENSIONS": f"ivec3({','.join(f'{d}.0' for d in dimensions)})"}
+        self.blitter: ComputeShader = window.load_compute_shader("programs/blitter.glsl", defines=defines)
+        self.blitter["voxel_texture"].value = 0
+        self.blitter.label = "prog_blitter"
+
+        self.clearer: ComputeShader = window.load_compute_shader("programs/clearer.glsl", defines=defines)
+        self.clearer.label = "prog_clearer"
+
+        self.debug_shader: Program = window.load_program(
+            "programs/debug_occluder.glsl", defines=defines | GLOBAL_DEFINE
+        )
+        self.debug_shader["occluder_texture"].value = 0  # type:ignore[union-attr]
+        self.debug_shader.label = "prog_debug_occluder"
+        self.debug_quad = geometry.quad_fs(normals=False, uvs=True)
+
+        self.occluder_texture = window.ctx.texture3d(size=dimensions, data=None, components=1, alignment=1, dtype="u1")
+        self.occluder_texture.label = "tex3d_global_occluder"
+
+        self.occluder_volume = Object(geometry=geometry.cube(size=dimensions))
+        self.occluder_volume.translation = glm.vec3(dimensions) * 0.5
+
+    def blit_object(self, voxel_object: VoxelObject) -> None:
+        self.blitter["obj_dimensions"].write(glm.ivec3(voxel_object.model.opengl_dimensions))  # type:ignore[union-attr]
+        self.blitter["obj_transform_inv"].write(glm.inverse(voxel_object.transform))  # type:ignore[union-attr]
+        voxel_object.voxel_texture.use(location=0)
+        self.occluder_texture.bind_to_image(1, read=False, write=True, level=0)
+        self.blitter.run(
+            GLOBAL_OCCLUDER_DIMENSIONS[0] // 8,
+            GLOBAL_OCCLUDER_DIMENSIONS[1] // 8,
+            GLOBAL_OCCLUDER_DIMENSIONS[2] // 8,
+        )
+
+    def clear(self) -> None:
+        # TODO(david): We should use glClearTexImage/glClearTexSubImage but it's not supported in moderngl
+        self.occluder_texture.bind_to_image(0, read=False, write=True, level=0)
+        self.clearer.run(
+            GLOBAL_OCCLUDER_DIMENSIONS[0] // 8,
+            GLOBAL_OCCLUDER_DIMENSIONS[1] // 8,
+            GLOBAL_OCCLUDER_DIMENSIONS[2] // 8,
+        )
+
+    def render_debug(self, camera: Camera) -> None:
+        self.occluder_texture.use(location=0)
+        self.debug_shader["uCameraPos"].write(camera.position)  # type:ignore[union-attr]
+        self.debug_shader["uInvProjection"].write(glm.inverse(camera.projection.matrix))  # type:ignore[union-attr]
+        self.debug_shader["uInvView"].write(glm.inverse(camera.matrix))  # type:ignore[union-attr]
+        self.debug_quad.render(self.debug_shader)
+
+
 class VoxelRenderer:
     def __init__(self, window: WindowConfig) -> None:
-        self.program: Program = window.load_program("programs/gbuffer_create.glsl")
+        self.program: Program = window.load_program("programs/gbuffer_create.glsl", defines=GLOBAL_DEFINE)
+        self.program.label = "prog_gbuffer_create"
 
     def render(
         self,
@@ -175,6 +238,15 @@ class GBuffer:
         )
         self.normal_smoother = SmoothNormals(window, self.smooth_normal_texture)
 
+    def label(self, pingpong: int = 0) -> None:
+        self.albedo_texture.label = f"tex2d_gbuffer_{pingpong}_albedo"
+        self.normal_texture.label = f"tex2d_gbuffer_{pingpong}_normal"
+        self.smooth_normal_texture.label = f"tex2d_gbuffer_{pingpong}_smooth_normal"
+        self.motion_vectors.label = f"tex2d_gbuffer_{pingpong}_motion_vectors"
+        self.depth_texture.label = f"tex2d_gbuffer_{pingpong}_depth"
+        self.linear_depth.label = f"tex2d_gbuffer_{pingpong}_linear_depth"
+        self.framebuffer.label = f"framebuffer_gbuffer_{pingpong}"
+
     def start(self) -> None:
         # clear depth buffer
         self.framebuffer.color_mask = [(False,) * 4] * len(self.framebuffer.color_attachments)
@@ -196,10 +268,12 @@ class GBuffer:
 class SmoothNormals:
     def __init__(self, window: moderngl_window.WindowConfig, output_texture: Texture) -> None:  # type: ignore[name-defined]
         self.program = window.load_program("programs/smooth_normals.glsl")
+        self.program.label = "prog_smooth_normals"
         self.program["input_texture"].value = 0
         self.program["depth_texture"].value = 1
         self.quad = geometry.quad_fs(normals=False, uvs=True)
         self.framebuffer = window.ctx.framebuffer(color_attachments=[output_texture])
+        self.framebuffer.label = "framebuffer_smooth_normals"
 
     def render(self, input_texture: Texture, depth_texture: Texture, camera: Camera) -> None:
         self.program["uInvProjection"].write(glm.inverse(camera.projection.matrix))
@@ -221,16 +295,22 @@ class GBufferLighting:
     ) -> None:
         self.pingpong = 0
         self.framebuffers: list[Framebuffer] = []
-        for _ in range(2):
+        for i in range(2):
             self.framebuffers.append(
                 window.ctx.framebuffer(color_attachments=[window.ctx.texture(size=size, components=3, dtype="f2")])
             )
+            self.framebuffers[-1].label = f"framebuffer_gbuffer_lighting_{i}"
         self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
-        self.gbuffer_lighting = window.load_program("programs/gbuffer_lighting.glsl")
+        self.gbuffer_lighting = window.load_program("programs/gbuffer_lighting.glsl", defines=GLOBAL_DEFINE)
+        self.gbuffer_lighting.label = "prog_gbuffer_lighting"
+
         self.stbnormals = window.load_texture_array("assets/stbn_cosine_normals.png", layers=64)
+        self.stbnormals.label = "texarr_stbn_cosine_normals"
         self.stbnormals.filter = (moderngl.NEAREST, moderngl.NEAREST)
         self.random_vec2 = window.load_texture_array("assets/stbn_vec2.png", layers=64)
+        self.random_vec2.label = "texarr_stbn_vec2"
         self.random_vec2.filter = (moderngl.NEAREST, moderngl.NEAREST)
+
         self.gbuffer_lighting["u_albedo"].value = 0
         self.gbuffer_lighting["u_normal"].value = 1
         self.gbuffer_lighting["u_depth"].value = 2
@@ -256,7 +336,6 @@ class GBufferLighting:
         voxel_texture: Texture3D,
         frame_counter: int,
         light_pos: Vec3,
-        voxel_model_view: Mat4,
         last_frame_depth: Texture3D,
     ) -> None:
         framebuffer = self.framebuffers[self.pingpong]
@@ -269,8 +348,6 @@ class GBufferLighting:
         self.gbuffer_lighting["frame_counter"].value = frame_counter
         self.gbuffer_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.gbuffer_lighting["uInvView"].write(glm.inverse(camera.matrix))
-        # TODO(david): Local transformation can be removed as soon we have a global occluder (without transform)
-        self.gbuffer_lighting["m_model_inverse"].write(glm.inverse(voxel_model_view))
         self.gbuffer_lighting["lightPos"].write(light_pos)
         gbuffer.albedo_texture.use(location=0)
         gbuffer.smooth_normal_texture.use(location=1)
@@ -294,6 +371,7 @@ class GBufferDebug:
     ) -> None:
         self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
         self.gbuffer_debug = window.load_program("programs/gbuffer_debug.glsl")
+        self.gbuffer_debug.label = "prog_gbuffer_debug"
         self.gbuffer_debug["u_albedo"].value = 0
         self.gbuffer_debug["u_normal"].value = 1
         self.gbuffer_debug["u_depth"].value = 2
@@ -314,6 +392,7 @@ class GBufferDebug:
 class WireFrameRenderer:
     def __init__(self, window: moderngl_window.WindowConfig) -> None:  # type: ignore[name-defined]
         self.prog = window.load_program("programs/cube_simple.glsl")
+        self.prog.label = "prof_cube_simple"
         self.prog["color"].value = 1.0, 1.0, 0.0, 1.0
 
     def render(self, camera: Camera, objects: Sequence[Object]) -> None:
@@ -331,6 +410,8 @@ class WireFrameRenderer:
 class GBufferPingPong:
     def __init__(self, window: moderngl_window.WindowConfig, dimensions: tuple[int, int]) -> None:  # type: ignore[name-defined]
         self.buffers = [GBuffer(window, dimensions) for _ in range(2)]
+        for i, gbuffer in enumerate(self.buffers):
+            gbuffer.label(i)
         self.pingpong = 0
 
     @property
@@ -343,6 +424,34 @@ class GBufferPingPong:
 
     def swap(self) -> None:
         self.pingpong = 1 - self.pingpong
+
+
+class Scene:
+    def __init__(self, ctx: Context) -> None:
+        self.truck = VoxelObject(model=parse_model(Path("./resources/models/truck.txt")))
+        self.dwarf = VoxelObject(model=parse_model(Path("./resources/models/dwarf.txt")))
+        self.plane = VoxelObject(model=parse_model(Path("./resources/models/plane.txt")))
+        self.light = Object(geometry.sphere(2))
+
+        self.last_frame_transforms = [obj.transform for obj in self.voxel_objects]
+        for voxel_object in self.voxel_objects:
+            voxel_object.upload_to_gpu(ctx)
+
+    @cached_property
+    def voxel_objects(self) -> Sequence[VoxelObject]:
+        return [self.truck, self.dwarf, self.plane]
+
+    def update(self, time: float) -> None:
+        self.truck.translation = glm.vec3(0, self.truck.model.dimensions[2] * 0.5 + 1, 0) + CENTER_GROUND
+        self.dwarf.translation = glm.vec3(0, 58.5, 0) + CENTER_GROUND
+        self.light.translation = glm.rotateY(glm.vec3(80, 0, 0), time) + CENTER
+        self.plane.translation = CENTER_GROUND
+        self.truck.rotate(0.001, glm.vec3(0, 1, 0))
+        self.dwarf.rotate(-0.001, glm.vec3(0, 1, 0))
+
+    def update_lastframe_transforms(self) -> None:
+        for i, voxel_object in enumerate(self.voxel_objects):
+            self.last_frame_transforms[i] = voxel_object.transform
 
 
 class VoxoWindow(CameraWindow):
@@ -358,14 +467,12 @@ class VoxoWindow(CameraWindow):
         self.time = 0.0
         self.frame_counter = 0
         self.debug = False
+        self.camera.position = glm.vec3(CENTER)  # type:ignore[assignment]
+        self.scene = Scene(self.ctx)
 
         self.last_frame_projview: Mat4 = cast("Mat4", self.camera.projection.matrix @ self.camera.matrix)
-        self.voxel_objects = [VoxelObject(model=parse_model(MODEL_PATH)), VoxelObject(model=parse_model(DWARF))]
-        self.last_frame_transforms = [obj.transform for obj in self.voxel_objects]
-        for voxel_object in self.voxel_objects:
-            voxel_object.upload_to_gpu(self.ctx)
+        self.global_occluder = GlobalOccluder(self, GLOBAL_OCCLUDER_DIMENSIONS)
         self.voxel_renderer = VoxelRenderer(self)
-        self.light = Object(geometry.sphere(2))
         self.gbuffer = GBufferPingPong(self, SCREEN_DIMENSIONS)
         self.gbuffer_lighting = GBufferLighting(self, SCREEN_DIMENSIONS)
         self.gbuffer_debug = GBufferDebug(self, self.gbuffer_lighting.lighting_texture)
@@ -381,42 +488,43 @@ class VoxoWindow(CameraWindow):
         self.time = time
         self.frame_counter += 1
         if self.timer.is_running:
-            self.voxel_objects[0].rotate(0.001, glm.vec3(0, 1, 0))
-            self.voxel_objects[1].translation = glm.vec3(0, 40, 0)
-            self.voxel_objects[1].rotate(-0.001, glm.vec3(0, 1, 0))
-            self.light.translation = glm.rotateY(glm.vec3(80, 0, 0), time) + glm.vec3(0, 60, 0)
+            self.scene.update(time)
+
+        # Update Occluder
+        self.global_occluder.clear()
+        for voxel_object in self.scene.voxel_objects:
+            self.global_occluder.blit_object(voxel_object)
 
         # Render into HDR framebuffer
         gbuffer = self.gbuffer.current
         gbuffer.start()
-        for i, voxel_object in enumerate(self.voxel_objects):
+        for i, voxel_object in enumerate(self.scene.voxel_objects):
             self.voxel_renderer.render(
                 self.camera,
                 voxel_object,
-                self.last_frame_transforms[i],
+                self.scene.last_frame_transforms[i],
                 self.last_frame_projview,
                 self.frame_counter,
             )
-            self.last_frame_transforms[i] = voxel_object.transform
         self.last_frame_projview = cast("Mat4", self.camera.projection.matrix @ self.camera.matrix)
+        self.scene.update_lastframe_transforms()
 
         # Compute lighting
         gbuffer.smooth_normals(self.camera)
         self.gbuffer_lighting.render(
             self.camera,
             gbuffer,
-            self.voxel_objects[0].voxel_texture,
+            self.global_occluder.occluder_texture,
             self.frame_counter,
-            self.light.translation,
-            self.voxel_objects[0].transform,
+            self.scene.light.translation,
             self.gbuffer.last.linear_depth,
         )
 
         # Render framebuffer onto screen
-        self.ctx.screen.clear(0.1, 0.1, 0.1, 1.0)
         self.ctx.screen.use()
         self.gbuffer_debug.render(gbuffer, debug=self.debug)
-        if not self.debug:
-            self.wireframe_box.render(self.camera, self.voxel_objects)
-            self.wireframe_box.render(self.camera, [self.light])
+        if self.debug:
+            self.global_occluder.render_debug(self.camera)
+            # self.wireframe_box.render(self.camera, self.scene.voxel_objects)
+            # self.wireframe_box.render(self.camera, [self.scene.light, self.global_occluder.occluder_volume])
         self.gbuffer.swap()

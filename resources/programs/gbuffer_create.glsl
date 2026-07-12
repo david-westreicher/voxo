@@ -61,7 +61,7 @@ vec2 compute_motion_vector(
     mat4 prevModel,
     mat4 prevViewProj
 ) {
-    vec2 uv = gl_FragCoord.xy / vec2(1920, 1080);
+    vec2 uv = gl_FragCoord.xy / SCREEN_DIMENSIONS;
     vec3 localPos = (m_model_inverse * vec4(currentGlobalPos, 1.0)).xyz;
     vec4 prevWorldPos = prevModel * vec4(localPos, 1.0);
     vec4 prevClip = prevViewProj * prevWorldPos;
