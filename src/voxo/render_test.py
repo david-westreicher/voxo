@@ -5,7 +5,7 @@ from typing import Any, cast
 
 import moderngl
 import moderngl_window
-from moderngl import Context, Program, Texture, Texture3D
+from moderngl import Context, Framebuffer, Program, Texture, Texture3D
 from moderngl_window import geometry
 from moderngl_window.context.base import KeyModifiers, WindowConfig
 from moderngl_window.opengl.vao import VAO
@@ -18,7 +18,7 @@ from pyglm.glm import vec3 as Vec3  # noqa: N812
 
 from .model import Model, parse_model
 
-MODEL_PATH = Path("./resources/models/truck_plane.txt")
+MODEL_PATH = Path("./resources/models/truck_plane2.txt")
 DWARF = Path("./resources/models/dwarf.txt")
 SCREEN_DIMENSIONS = (1920, 1080)
 ASPECT_RATIO = SCREEN_DIMENSIONS[0] / SCREEN_DIMENSIONS[1]
@@ -126,11 +126,20 @@ class VoxelRenderer:
     def __init__(self, window: WindowConfig) -> None:
         self.program: Program = window.load_program("programs/gbuffer_create.glsl")
 
-    def render(self, camera: Camera, voxel_object: VoxelObject, frame_counter: int) -> None:
+    def render(
+        self,
+        camera: Camera,
+        voxel_object: VoxelObject,
+        prev_model: Mat4,
+        prev_viewproj: Mat4,
+        frame_counter: int,
+    ) -> None:
         ctx = voxel_object.voxel_texture.ctx
         self.program["m_proj"].write(camera.projection.matrix)  # type:ignore[union-attr]
         self.program["m_model"].write(voxel_object.transform)  # type:ignore[union-attr]
         self.program["m_model_inverse"].write(glm.inverse(voxel_object.transform))  # type:ignore[union-attr]
+        self.program["m_prev_model"].write(prev_model)  # type:ignore[union-attr]
+        self.program["m_prev_viewproj"].write(prev_viewproj)  # type:ignore[union-attr]
         self.program["m_camera"].write(camera.matrix)  # type:ignore[union-attr]
         self.program["uInvProjection"].write(glm.inverse(camera.projection.matrix))  # type:ignore[union-attr]
         self.program["uInvView"].write(glm.inverse(camera.matrix))  # type:ignore[union-attr]
@@ -150,6 +159,7 @@ class GBuffer:
         self.albedo_texture = window.ctx.texture(size=size, components=3, dtype="f2")
         self.normal_texture = window.ctx.texture(size=size, components=3, internal_format=GL_RGB10_A2)
         self.smooth_normal_texture = window.ctx.texture(size=size, components=3, internal_format=GL_RGB10_A2)
+        self.motion_vectors = window.ctx.texture(size=size, components=2, dtype="f2")
         # NOTE(david): internally uses GL_DEPTH_COMPONENT24 but we want GL_DEPTH_COMPONENT32F
         self.depth_texture = window.ctx.depth_texture(size=size)
         self.linear_depth = window.ctx.texture(size=size, components=1, dtype="f2")
@@ -159,6 +169,7 @@ class GBuffer:
                 self.albedo_texture,
                 self.normal_texture,
                 self.linear_depth,
+                self.motion_vectors,
             ],
             depth_attachment=self.depth_texture,
         )
@@ -166,16 +177,17 @@ class GBuffer:
 
     def start(self) -> None:
         # clear depth buffer
-        self.framebuffer.color_mask = [(False,) * 4] * 3
+        self.framebuffer.color_mask = [(False,) * 4] * len(self.framebuffer.color_attachments)
         self.framebuffer.clear(depth=1.0)
 
         ctx = self.framebuffer.ctx
         ctx.enable_only(moderngl.DEPTH_TEST)
-        self.framebuffer.color_mask = [(True,) * 4] * 3
+        self.framebuffer.color_mask = [(True,) * 4] * len(self.framebuffer.color_attachments)
         self.framebuffer.use()
         self.albedo_texture.use(location=0)
         self.normal_texture.use(location=1)
         self.linear_depth.use(location=2)
+        self.motion_vectors.use(location=3)
 
     def smooth_normals(self, camera: Camera) -> None:
         self.normal_smoother.render(self.normal_texture, self.linear_depth, camera)
@@ -207,17 +219,35 @@ class GBufferLighting:
         window: moderngl_window.WindowConfig,  # type: ignore[name-defined]
         size: tuple[int, int],
     ) -> None:
-        self.lighting_texture = window.ctx.texture(size=size, components=3, dtype="f2")
-        self.framebuffer = window.ctx.framebuffer(color_attachments=[self.lighting_texture])
+        self.pingpong = 0
+        self.framebuffers: list[Framebuffer] = []
+        for _ in range(2):
+            self.framebuffers.append(
+                window.ctx.framebuffer(color_attachments=[window.ctx.texture(size=size, components=3, dtype="f2")])
+            )
         self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
         self.gbuffer_lighting = window.load_program("programs/gbuffer_lighting.glsl")
         self.stbnormals = window.load_texture_array("assets/stbn_cosine_normals.png", layers=64)
         self.stbnormals.filter = (moderngl.NEAREST, moderngl.NEAREST)
+        self.random_vec2 = window.load_texture_array("assets/stbn_vec2.png", layers=64)
+        self.random_vec2.filter = (moderngl.NEAREST, moderngl.NEAREST)
         self.gbuffer_lighting["u_albedo"].value = 0
         self.gbuffer_lighting["u_normal"].value = 1
         self.gbuffer_lighting["u_depth"].value = 2
         self.gbuffer_lighting["u_voxel_data"].value = 3
         self.gbuffer_lighting["u_normals"].value = 4
+        self.gbuffer_lighting["u_random_vec2"].value = 5
+        self.gbuffer_lighting["u_motion_vector"].value = 6
+        self.gbuffer_lighting["u_last_frame"].value = 7
+        self.gbuffer_lighting["u_last_frame_depth"].value = 8
+
+    @property
+    def lighting_texture(self) -> Texture:
+        return cast("Texture", self.framebuffers[self.pingpong].color_attachments[0])
+
+    @property
+    def last_frame(self) -> Texture:
+        return cast("Texture", self.framebuffers[1 - self.pingpong].color_attachments[0])
 
     def render(  # noqa: PLR0913
         self,
@@ -227,11 +257,13 @@ class GBufferLighting:
         frame_counter: int,
         light_pos: Vec3,
         voxel_model_view: Mat4,
+        last_frame_depth: Texture3D,
     ) -> None:
-        ctx = self.framebuffer.ctx
+        framebuffer = self.framebuffers[self.pingpong]
+        ctx = framebuffer.ctx
         ctx.disable(moderngl.DEPTH_TEST)
-        self.framebuffer.clear()
-        self.framebuffer.use()
+        framebuffer.clear()
+        framebuffer.use()
 
         self.gbuffer_lighting["uCameraPos"].write(camera.position)
         self.gbuffer_lighting["frame_counter"].value = frame_counter
@@ -245,14 +277,19 @@ class GBufferLighting:
         gbuffer.depth_texture.use(location=2)
         voxel_texture.use(location=3)
         self.stbnormals.use(location=4)
+        self.random_vec2.use(location=5)
+        gbuffer.motion_vectors.use(location=6)
+        self.last_frame.use(location=7)
+        last_frame_depth.use(location=8)
         self.quad_fs.render(self.gbuffer_lighting)
+
+        self.pingpong = 1 - self.pingpong
 
 
 class GBufferDebug:
     def __init__(
         self,
         window: moderngl_window.WindowConfig,  # type: ignore[name-defined]
-        gbuffer: GBuffer,
         gbuffer_lighting_texture: moderngl.Texture,
     ) -> None:
         self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
@@ -260,15 +297,16 @@ class GBufferDebug:
         self.gbuffer_debug["u_albedo"].value = 0
         self.gbuffer_debug["u_normal"].value = 1
         self.gbuffer_debug["u_depth"].value = 2
-        self.gbuffer_debug["u_lighting"].value = 3
-        self.gbuffer = gbuffer
+        self.gbuffer_debug["u_motion_vectors"].value = 3
+        self.gbuffer_debug["u_lighting"].value = 4
         self.gbuffer_lighting = gbuffer_lighting_texture
 
-    def render(self, *, debug: bool) -> None:
-        self.gbuffer.albedo_texture.use(location=0)
-        self.gbuffer.smooth_normal_texture.use(location=1)
-        self.gbuffer.linear_depth.use(location=2)
-        self.gbuffer_lighting.use(location=3)
+    def render(self, gbuffer: GBuffer, *, debug: bool) -> None:
+        gbuffer.albedo_texture.use(location=0)
+        gbuffer.smooth_normal_texture.use(location=1)
+        gbuffer.linear_depth.use(location=2)
+        gbuffer.motion_vectors.use(location=3)
+        self.gbuffer_lighting.use(location=4)
         self.gbuffer_debug["full"].value = not debug
         self.quad_fs.render(self.gbuffer_debug)
 
@@ -290,6 +328,23 @@ class WireFrameRenderer:
         ctx.wireframe = False
 
 
+class GBufferPingPong:
+    def __init__(self, window: moderngl_window.WindowConfig, dimensions: tuple[int, int]) -> None:  # type: ignore[name-defined]
+        self.buffers = [GBuffer(window, dimensions) for _ in range(2)]
+        self.pingpong = 0
+
+    @property
+    def current(self) -> GBuffer:
+        return self.buffers[self.pingpong]
+
+    @property
+    def last(self) -> GBuffer:
+        return self.buffers[1 - self.pingpong]
+
+    def swap(self) -> None:
+        self.pingpong = 1 - self.pingpong
+
+
 class VoxoWindow(CameraWindow):
     gl_version = (4, 6)
     window_size = SCREEN_DIMENSIONS
@@ -304,14 +359,16 @@ class VoxoWindow(CameraWindow):
         self.frame_counter = 0
         self.debug = False
 
+        self.last_frame_projview: Mat4 = cast("Mat4", self.camera.projection.matrix @ self.camera.matrix)
         self.voxel_objects = [VoxelObject(model=parse_model(MODEL_PATH)), VoxelObject(model=parse_model(DWARF))]
+        self.last_frame_transforms = [obj.transform for obj in self.voxel_objects]
         for voxel_object in self.voxel_objects:
             voxel_object.upload_to_gpu(self.ctx)
         self.voxel_renderer = VoxelRenderer(self)
         self.light = Object(geometry.sphere(2))
-        self.gbuffer = GBuffer(self, SCREEN_DIMENSIONS)
+        self.gbuffer = GBufferPingPong(self, SCREEN_DIMENSIONS)
         self.gbuffer_lighting = GBufferLighting(self, SCREEN_DIMENSIONS)
-        self.gbuffer_debug = GBufferDebug(self, self.gbuffer, self.gbuffer_lighting.lighting_texture)
+        self.gbuffer_debug = GBufferDebug(self, self.gbuffer_lighting.lighting_texture)
         self.wireframe_box = WireFrameRenderer(self)
 
     def on_key_event(self, key: Any, action: Any, modifiers: KeyModifiers) -> None:
@@ -327,28 +384,39 @@ class VoxoWindow(CameraWindow):
             self.voxel_objects[0].rotate(0.001, glm.vec3(0, 1, 0))
             self.voxel_objects[1].translation = glm.vec3(0, 40, 0)
             self.voxel_objects[1].rotate(-0.001, glm.vec3(0, 1, 0))
-            self.light.translation = glm.rotateY(glm.vec3(40, 0, 0), time) + glm.vec3(0, 40, 0)
+            self.light.translation = glm.rotateY(glm.vec3(80, 0, 0), time) + glm.vec3(0, 60, 0)
 
         # Render into HDR framebuffer
-        self.gbuffer.start()
-        for voxel_object in self.voxel_objects:
-            self.voxel_renderer.render(self.camera, voxel_object, self.frame_counter)
+        gbuffer = self.gbuffer.current
+        gbuffer.start()
+        for i, voxel_object in enumerate(self.voxel_objects):
+            self.voxel_renderer.render(
+                self.camera,
+                voxel_object,
+                self.last_frame_transforms[i],
+                self.last_frame_projview,
+                self.frame_counter,
+            )
+            self.last_frame_transforms[i] = voxel_object.transform
+        self.last_frame_projview = cast("Mat4", self.camera.projection.matrix @ self.camera.matrix)
 
         # Compute lighting
-        self.gbuffer.smooth_normals(self.camera)
+        gbuffer.smooth_normals(self.camera)
         self.gbuffer_lighting.render(
             self.camera,
-            self.gbuffer,
+            gbuffer,
             self.voxel_objects[0].voxel_texture,
             self.frame_counter,
             self.light.translation,
             self.voxel_objects[0].transform,
+            self.gbuffer.last.linear_depth,
         )
 
         # Render framebuffer onto screen
         self.ctx.screen.clear(0.1, 0.1, 0.1, 1.0)
         self.ctx.screen.use()
-        self.gbuffer_debug.render(debug=self.debug)
+        self.gbuffer_debug.render(gbuffer, debug=self.debug)
         if not self.debug:
             self.wireframe_box.render(self.camera, self.voxel_objects)
             self.wireframe_box.render(self.camera, [self.light])
+        self.gbuffer.swap()
