@@ -20,11 +20,14 @@ void main() {
 in vec2 uv;
 
 uniform vec3 uCameraPos;
+uniform mat4 uView;
+uniform mat4 uProjection;
 uniform mat4 uInvView;
 uniform mat4 uInvProjection;
 uniform sampler2D u_albedo;
 uniform sampler2D u_normal;
 uniform sampler2D u_depth;
+uniform sampler2D u_linear_depth;
 uniform usampler3D u_voxel_data;
 uniform sampler2D u_motion_vector;
 uniform sampler2D u_last_frame;
@@ -114,8 +117,33 @@ vec3 sample_disk_light(vec3 lightPos, vec3 lightNormal, float radius, vec2 xi) {
         B * (r * sin(phi));
 }
 
+vec2 world_to_uv(vec3 world_pos)
+{
+    vec4 clip = uProjection * uView * vec4(world_pos, 1.0);
+    if (clip.w <= 0.0)
+        return vec2(-1.0); // behind the camera
+    vec3 ndc = clip.xyz / clip.w;
+    return ndc.xy * 0.5 + 0.5;
+}
+
+Hit screen_space_dda(Ray ray, int max_steps, usampler3D voxels, Box bbox) {
+    vec3 world_pos = ray.origin + ray.direction;
+    vec2 uv = world_to_uv(world_pos);
+    float screen_depth = texture(u_linear_depth, uv).r;
+    float sample_depth = distance(world_pos, uCameraPos);
+    if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThan(uv, vec2(1.0)))
+            && screen_depth < sample_depth && sample_depth - screen_depth < 1.5) {
+        Hit hit;
+        hit.hit = true;
+        hit.t = distance(ray.origin, world_pos);
+        return hit;
+    }
+    ray.origin = world_pos;
+    return dda(ray, max_steps, voxels, bbox);
+}
+
 vec3 compute_light(vec3 camera_pos, vec3 pos, vec3 normal, vec3 light_pos, vec3 albedo, Pcg32State rnd) {
-    vec3 ray_start = pos + normal * 0.5;
+    vec3 ray_start = pos + normal * 0.01;
 
     // Ambient Occlusion
     float ambient_gathered = 0;
@@ -123,7 +151,7 @@ vec3 compute_light(vec3 camera_pos, vec3 pos, vec3 normal, vec3 light_pos, vec3 
         vec3 jitter_point = (pcg_random_vec3(rnd) - 0.5);
         vec3 jitter = jitter_point - normal * dot(jitter_point, normal);
         Ray occ_ray = Ray(ray_start + jitter, generate_random_cosine_weighted_normal(normal, normal_rand_state));
-        Hit occ_hit = dda(occ_ray, MAX_OCC_DISTANCE, u_voxel_data, bbox);
+        Hit occ_hit = screen_space_dda(occ_ray, MAX_OCC_DISTANCE, u_voxel_data, bbox);
         if (occ_hit.hit) {
             ambient_gathered += clamp(occ_hit.t, 0, MAX_OCC_DISTANCE);
         } else {
@@ -141,7 +169,7 @@ vec3 compute_light(vec3 camera_pos, vec3 pos, vec3 normal, vec3 light_pos, vec3 
     vec3 light_center = sample_disk_light(light_pos, normalize(pos - light_pos), LIGHT_RADIUS, generate_random_vec2(light_rand_state));
     vec3 L = normalize(light_pos - pos); // direction to light
     Ray sun_ray = Ray(ray_start, normalize(light_center - ray_start));
-    Hit sun_hit = dda(sun_ray, MAX_STEPS, u_voxel_data, bbox);
+    Hit sun_hit = screen_space_dda(sun_ray, MAX_STEPS, u_voxel_data, bbox);
     //return vec3(occlusion) + albedo * 0.00001 + camera_pos * 0.000001;
     vec3 color = ambient;
     if (!sun_hit.hit) {

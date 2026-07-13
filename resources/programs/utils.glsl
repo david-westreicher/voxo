@@ -1,4 +1,6 @@
 # line 0
+#include programs/random.glsl
+
 #define SCREEN_DIMENSIONS vec2(1, 1)
 
 struct Hit {
@@ -18,23 +20,6 @@ struct Box {
     vec3 min;
     vec3 max;
 };
-
-float halton(int base, int index) {
-    float result = 0.;
-    float f = 1.;
-    while (index > 0)
-    {
-        f = f / float(base);
-        result += f * float(index % base);
-        index = index / base;
-    }
-    return result;
-}
-
-vec2 halton2D(int frame_counter) {
-    frame_counter = frame_counter % 32;
-    return vec2(halton(2, frame_counter), halton(3, frame_counter));
-}
 
 Ray compute_camera_ray(mat4 uInvProjection, mat4 uInvView, vec3 uCameraPos, int frame_counter, float jitter_scale) {
     vec2 jitter = halton2D(frame_counter) - vec2(0.5);
@@ -65,7 +50,7 @@ bool is_inside_box(vec3 p, Box box) {
 uint voxelmap(vec3 p, Box bbox, usampler3D u_voxel_data)
 {
     vec3 local_coord = (p - bbox.min + 0.5) / (bbox.max - bbox.min);
-    return texture(u_voxel_data, local_coord).r;
+    return textureLod(u_voxel_data, local_coord, 0.0).r;
 }
 
 Hit dda(Ray ray, int max_steps, usampler3D voxels, Box bbox) {

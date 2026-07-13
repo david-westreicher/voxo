@@ -22,8 +22,8 @@ uniform vec3 uCameraPos;
 uniform mat4 uInvView;
 uniform mat4 uInvProjection;
 uniform usampler3D occluder_texture;
+uniform ivec3 size;
 
-vec3 size = textureSize(occluder_texture, 0);
 Box bbox = Box(vec3(0.0), vec3(size));
 int MAX_STEPS = int(max(size.x, max(size.y, size.z))) * 3;
 

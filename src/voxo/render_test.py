@@ -19,8 +19,6 @@ from pyglm.glm import vec3 as Vec3  # noqa: N812
 
 from .model import Model, parse_model
 
-MODEL_PATH = Path("./resources/models/truck.txt")
-DWARF = Path("./resources/models/dwarf.txt")
 SCREEN_DIMENSIONS = (1920, 1080)
 GLOBAL_OCCLUDER_DIMENSIONS = (256, 256, 256)
 CENTER = glm.vec3(GLOBAL_OCCLUDER_DIMENSIONS) * 0.5
@@ -108,6 +106,7 @@ class VoxelObject(Object):
             components=1,
             alignment=1,
             dtype="u1",
+            mip_maps=True,
         )
         self._voxel_texture.label = f"tex3d_model_{self.model.name}"
         self._voxel_texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
@@ -143,6 +142,9 @@ class GlobalOccluder:
         self.clearer: ComputeShader = window.load_compute_shader("programs/clearer.glsl", defines=defines)
         self.clearer.label = "prog_clearer"
 
+        self.mipmapper: ComputeShader = window.load_compute_shader("programs/occluder_mipmapper.glsl", defines=defines)
+        self.mipmapper.label = "prog_occluder_mipmapper"
+
         self.debug_shader: Program = window.load_program(
             "programs/debug_occluder.glsl", defines=defines | GLOBAL_DEFINE
         )
@@ -150,13 +152,22 @@ class GlobalOccluder:
         self.debug_shader.label = "prog_debug_occluder"
         self.debug_quad = geometry.quad_fs(normals=False, uvs=True)
 
-        self.occluder_texture = window.ctx.texture3d(size=dimensions, data=None, components=1, alignment=1, dtype="u1")
+        self.occluder_texture = window.ctx.texture3d(
+            size=dimensions,
+            data=None,
+            components=1,
+            alignment=1,
+            dtype="u1",
+            mip_maps=True,
+        )
+        self.occluder_texture.filter = moderngl.NEAREST_MIPMAP_NEAREST, moderngl.NEAREST
         self.occluder_texture.label = "tex3d_global_occluder"
 
         self.occluder_volume = Object(geometry=geometry.cube(size=dimensions))
         self.occluder_volume.translation = glm.vec3(dimensions) * 0.5
 
     def blit_object(self, voxel_object: VoxelObject) -> None:
+        # TODO(david): only blit to affected bounding box
         self.blitter["obj_dimensions"].write(glm.ivec3(voxel_object.model.opengl_dimensions))  # type:ignore[union-attr]
         self.blitter["obj_transform_inv"].write(glm.inverse(voxel_object.transform))  # type:ignore[union-attr]
         voxel_object.voxel_texture.use(location=0)
@@ -168,6 +179,7 @@ class GlobalOccluder:
         )
 
     def clear(self) -> None:
+        # TODO(david): only clear affected bounding box
         # TODO(david): We should use glClearTexImage/glClearTexSubImage but it's not supported in moderngl
         self.occluder_texture.bind_to_image(0, read=False, write=True, level=0)
         self.clearer.run(
@@ -176,8 +188,24 @@ class GlobalOccluder:
             GLOBAL_OCCLUDER_DIMENSIONS[2] // 8,
         )
 
+    def update_mipmaps(self) -> None:
+        destination_dimensions = glm.ivec3(GLOBAL_OCCLUDER_DIMENSIONS) // 2
+        dst_mip = 1
+        while glm.min(destination_dimensions) > 0:
+            self.occluder_texture.bind_to_image(0, read=True, write=False, level=dst_mip - 1)
+            self.occluder_texture.bind_to_image(1, read=False, write=True, level=dst_mip)
+            self.mipmapper.run(
+                (destination_dimensions[0] + 7) // 8,
+                (destination_dimensions[1] + 7) // 8,
+                (destination_dimensions[2] + 7) // 8,
+            )
+            destination_dimensions //= 2
+            dst_mip += 1
+            self.occluder_texture.ctx.memory_barrier(moderngl.SHADER_IMAGE_ACCESS_BARRIER_BIT)
+
     def render_debug(self, camera: Camera) -> None:
         self.occluder_texture.use(location=0)
+        self.debug_shader["size"].write(glm.ivec3(GLOBAL_OCCLUDER_DIMENSIONS))  # type:ignore[union-attr]
         self.debug_shader["uCameraPos"].write(camera.position)  # type:ignore[union-attr]
         self.debug_shader["uInvProjection"].write(glm.inverse(camera.projection.matrix))  # type:ignore[union-attr]
         self.debug_shader["uInvView"].write(glm.inverse(camera.matrix))  # type:ignore[union-attr]
@@ -249,6 +277,10 @@ class GBuffer:
 
     def start(self) -> None:
         # clear depth buffer
+        self.framebuffer.color_mask = (
+            [(False,) * 4] * (len(self.framebuffer.color_attachments) - 2) + [(True,) * 4] + [(False,) * 4]
+        )
+        self.framebuffer.clear(red=10000.0)
         self.framebuffer.color_mask = [(False,) * 4] * len(self.framebuffer.color_attachments)
         self.framebuffer.clear(depth=1.0)
 
@@ -320,6 +352,7 @@ class GBufferLighting:
         self.gbuffer_lighting["u_motion_vector"].value = 6
         self.gbuffer_lighting["u_last_frame"].value = 7
         self.gbuffer_lighting["u_last_frame_depth"].value = 8
+        self.gbuffer_lighting["u_linear_depth"].value = 9
 
     @property
     def lighting_texture(self) -> Texture:
@@ -346,6 +379,8 @@ class GBufferLighting:
 
         self.gbuffer_lighting["uCameraPos"].write(camera.position)
         self.gbuffer_lighting["frame_counter"].value = frame_counter
+        self.gbuffer_lighting["uProjection"].write(camera.projection.matrix)
+        self.gbuffer_lighting["uView"].write(camera.matrix)
         self.gbuffer_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.gbuffer_lighting["uInvView"].write(glm.inverse(camera.matrix))
         self.gbuffer_lighting["lightPos"].write(light_pos)
@@ -358,6 +393,7 @@ class GBufferLighting:
         gbuffer.motion_vectors.use(location=6)
         self.last_frame.use(location=7)
         last_frame_depth.use(location=8)
+        gbuffer.linear_depth.use(location=9)
         self.quad_fs.render(self.gbuffer_lighting)
 
         self.pingpong = 1 - self.pingpong
@@ -442,10 +478,11 @@ class Scene:
         return [self.truck, self.dwarf, self.plane]
 
     def update(self, time: float) -> None:
+        # TODO(david): occluder should align to +/-0.5 voxel
         self.truck.translation = glm.vec3(0, self.truck.model.dimensions[2] * 0.5 + 1, 0) + CENTER_GROUND
         self.dwarf.translation = glm.vec3(0, 58.5, 0) + CENTER_GROUND
-        self.light.translation = glm.rotateY(glm.vec3(80, 0, 0), time) + CENTER
-        self.plane.translation = CENTER_GROUND
+        self.light.translation = glm.rotateY(glm.vec3(80, 0.0, 0), time) + CENTER
+        self.plane.translation = CENTER_GROUND + glm.vec3(0, 0.5, 0)
         self.truck.rotate(0.001, glm.vec3(0, 1, 0))
         self.dwarf.rotate(-0.001, glm.vec3(0, 1, 0))
 
@@ -459,7 +496,7 @@ class VoxoWindow(CameraWindow):
     window_size = SCREEN_DIMENSIONS
     title = "voxo"
     resource_dir = Path("resources").resolve()
-    vsync = True
+    vsync = False
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -490,10 +527,11 @@ class VoxoWindow(CameraWindow):
         if self.timer.is_running:
             self.scene.update(time)
 
-        # Update Occluder
-        self.global_occluder.clear()
-        for voxel_object in self.scene.voxel_objects:
-            self.global_occluder.blit_object(voxel_object)
+            # Update Occluder
+            self.global_occluder.clear()
+            for voxel_object in self.scene.voxel_objects:
+                self.global_occluder.blit_object(voxel_object)
+            self.global_occluder.update_mipmaps()
 
         # Render into HDR framebuffer
         gbuffer = self.gbuffer.current
@@ -525,6 +563,6 @@ class VoxoWindow(CameraWindow):
         self.gbuffer_debug.render(gbuffer, debug=self.debug)
         if self.debug:
             self.global_occluder.render_debug(self.camera)
-            # self.wireframe_box.render(self.camera, self.scene.voxel_objects)
-            # self.wireframe_box.render(self.camera, [self.scene.light, self.global_occluder.occluder_volume])
+            self.wireframe_box.render(self.camera, self.scene.voxel_objects)
+            self.wireframe_box.render(self.camera, [self.scene.light, self.global_occluder.occluder_volume])
         self.gbuffer.swap()
