@@ -7,7 +7,7 @@ from moderngl_window import geometry
 from moderngl_window.scene import Camera
 from pyglm import glm
 
-from .constants import GLOBAL_OCCLUDER_DIMENSIONS
+from .constants import GLOBAL_DEFINE, GLOBAL_OCCLUDER_DIMENSIONS
 from .utils import Object
 
 GL_RGB10_A2 = 0x8059
@@ -87,11 +87,7 @@ class SmoothNormals:
 
 
 class GBufferDebug:
-    def __init__(
-        self,
-        window: moderngl_window.WindowConfig,  # type: ignore[name-defined]
-        gbuffer_lighting_texture: moderngl.Texture,
-    ) -> None:
+    def __init__(self, window: moderngl_window.WindowConfig) -> None:  # type: ignore[name-defined]
         self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
         self.gbuffer_debug = window.load_program("programs/gbuffer_debug.glsl")
         self.gbuffer_debug.label = "prog_gbuffer_debug"
@@ -100,29 +96,53 @@ class GBufferDebug:
         self.gbuffer_debug["u_depth"].value = 2
         self.gbuffer_debug["u_motion_vectors"].value = 3
         self.gbuffer_debug["u_lighting"].value = 4
-        self.gbuffer_lighting = gbuffer_lighting_texture
 
-    def render(self, gbuffer: GBuffer, *, debug: bool) -> None:
+    def render(self, gbuffer: GBuffer, final_hdr_texture: Texture, *, debug: bool) -> None:
         gbuffer.albedo_texture.use(location=0)
         gbuffer.smooth_normal_texture.use(location=1)
         gbuffer.linear_depth.use(location=2)
         gbuffer.motion_vectors.use(location=3)
-        self.gbuffer_lighting.use(location=4)
+        final_hdr_texture.use(location=4)
         self.gbuffer_debug["full"].value = not debug
         self.quad_fs.render(self.gbuffer_debug)
+
+
+class PostProcessing:
+    def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int]) -> None:  # type: ignore[name-defined]
+        self.final_texture = window.ctx.texture(size=size, components=3, dtype="f2")
+        self.framebuffer = window.ctx.framebuffer(color_attachments=[self.final_texture])
+        self.framebuffer.label = "framebuffer_postprocessing"
+
+        self.program = window.load_program("programs/postprocessing.glsl", defines=GLOBAL_DEFINE)
+        self.program.label = "prog_postprocessing"
+        self.quad = geometry.quad_fs(normals=False, uvs=True)
+
+    def render(self, camera: Camera, albedo: Texture, irradiance: Texture, depth: Texture) -> None:
+        self.framebuffer.use()
+
+        self.program["uInvProjection"].write(glm.inverse(camera.projection.matrix))
+        self.program["uInvView"].write(glm.inverse(camera.matrix))
+        albedo.use(location=0)
+        irradiance.use(location=1)
+        depth.use(location=2)
+        self.quad.render(self.program)
 
 
 class WireFrameRenderer:
     def __init__(self, window: moderngl_window.WindowConfig) -> None:  # type: ignore[name-defined]
         self.prog = window.load_program("programs/cube_simple.glsl")
         self.prog.label = "prof_cube_simple"
-        self.prog["color"].value = 1.0, 1.0, 0.0, 1.0
+        self.prog["color"].value = 1.0, 1.0, 0.0
 
     def render(self, camera: Camera, objects: Sequence[Object]) -> None:
         ctx = self.prog.ctx
         ctx.enable_only(moderngl.CULL_FACE)
         ctx.wireframe = True
         for object_to_render in objects:
+            if hasattr(object_to_render, "color"):
+                self.prog["color"].write(glm.normalize(object_to_render.color))
+            else:
+                self.prog["color"].value = 1.0, 1.0, 0.0
             self.prog["m_proj"].write(camera.projection.matrix)
             self.prog["m_model"].write(object_to_render.transform)
             self.prog["m_camera"].write(camera.matrix)

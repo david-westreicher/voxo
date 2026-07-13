@@ -7,7 +7,7 @@ from moderngl_window.scene.camera import KeyboardCamera
 from pyglm import glm
 
 from .constants import ASPECT_RATIO, CENTER, GLOBAL_OCCLUDER_DIMENSIONS, SCREEN_DIMENSIONS
-from .rendering import GBufferDebug, GBufferPingPong, WireFrameRenderer
+from .rendering import GBufferDebug, GBufferPingPong, PostProcessing, WireFrameRenderer
 from .scene import Scene
 from .voxel_rendering import GlobalOccluder, VoxelLighting, VoxelRenderer
 
@@ -76,9 +76,10 @@ class VoxoWindow(CameraWindow):
         self.global_occluder = GlobalOccluder(self, GLOBAL_OCCLUDER_DIMENSIONS)
         self.voxel_renderer = VoxelRenderer(self)
         self.gbuffer = GBufferPingPong(self, SCREEN_DIMENSIONS)
-        self.gbuffer_lighting = VoxelLighting(self, SCREEN_DIMENSIONS)
-        self.gbuffer_debug = GBufferDebug(self, self.gbuffer_lighting.lighting_texture)
+        self.voxel_lighting = VoxelLighting(self, SCREEN_DIMENSIONS)
+        self.gbuffer_debug = GBufferDebug(self)
         self.wireframe_box = WireFrameRenderer(self)
+        self.post_processing = PostProcessing(self, SCREEN_DIMENSIONS)
 
     def on_key_event(self, key: Any, action: Any, modifiers: KeyModifiers) -> None:
         super().on_key_event(key, action, modifiers)
@@ -114,20 +115,28 @@ class VoxoWindow(CameraWindow):
 
         # Compute lighting
         gbuffer.smooth_normals(self.camera)
-        self.gbuffer_lighting.render(
+        self.voxel_lighting.render(
             self.camera,
             gbuffer,
             self.global_occluder.occluder_texture,
+            self.scene.lights,
             self.frame_counter,
-            self.scene.light.translation,
-            self.gbuffer.last.linear_depth,
+        )
+
+        # Post processing
+        self.post_processing.render(
+            self.camera,
+            gbuffer.albedo_texture,
+            self.voxel_lighting.irradiance_texture,
+            gbuffer.depth_texture,
         )
 
         # Render framebuffer onto screen
         self.ctx.screen.use()
-        self.gbuffer_debug.render(gbuffer, debug=self.debug)
+        self.gbuffer_debug.render(gbuffer, final_hdr_texture=self.post_processing.final_texture, debug=self.debug)
+        self.wireframe_box.render(self.camera, [*self.scene.lights])
         if self.debug:
             self.global_occluder.render_debug(self.camera)
             self.wireframe_box.render(self.camera, self.scene.voxel_objects)
-            self.wireframe_box.render(self.camera, [self.scene.light, self.global_occluder.occluder_volume])
+            self.wireframe_box.render(self.camera, [*self.scene.lights, self.global_occluder.occluder_volume])
         self.gbuffer.swap()

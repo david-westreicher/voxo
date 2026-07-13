@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import cast
 
+from moderngl_window import geometry
 from moderngl_window.opengl.vao import VAO
 from pyglm import glm
 from pyglm.glm import mat4x4 as Mat4  # noqa: N812
@@ -21,3 +22,20 @@ class Object:
 
     def rotate(self, angle: float, axis: Vec3) -> None:
         self.rotation = cast("Quat", glm.rotate(self.rotation, angle, axis))
+
+
+@dataclass(init=False, kw_only=True)
+class Light(Object):
+    color: glm.vec3
+    radius: float = 1.0
+
+    def __init__(self, radius: float, light_color: glm.vec3) -> None:
+        super().__init__(geometry.sphere(1.0))
+        self.color = light_color
+        self.radius = radius
+
+    @property
+    def transform(self) -> Mat4:
+        return cast(
+            "Mat4", glm.translate(self.translation) @ glm.mat4_cast(self.rotation) @ glm.scale(glm.vec3(self.radius))
+        )

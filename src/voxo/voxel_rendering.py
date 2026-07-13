@@ -1,20 +1,19 @@
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import cast
 
 import moderngl
-from moderngl import ComputeShader, Context, Framebuffer, Program, Texture, Texture3D
+from moderngl import ComputeShader, Context, Program, Texture, Texture3D
 from moderngl_window import geometry
 from moderngl_window.context.base import WindowConfig
 from moderngl_window.opengl.vao import VAO
 from moderngl_window.scene import Camera
 from pyglm import glm
 from pyglm.glm import mat4x4 as Mat4  # noqa: N812
-from pyglm.glm import vec3 as Vec3  # noqa: N812
 
 from .constants import GLOBAL_DEFINE, GLOBAL_OCCLUDER_DIMENSIONS
 from .model import Model
 from .rendering import GBuffer
-from .utils import Object
+from .utils import Light, Object
 
 
 @dataclass(kw_only=True)
@@ -174,80 +173,110 @@ class VoxelRenderer:
 
 
 class VoxelLighting:
-    def __init__(
-        self,
-        window: WindowConfig,
-        size: tuple[int, int],
-    ) -> None:
-        self.pingpong = 0
-        self.framebuffers: list[Framebuffer] = []
-        for i in range(2):
-            self.framebuffers.append(
-                window.ctx.framebuffer(color_attachments=[window.ctx.texture(size=size, components=3, dtype="f2")])
-            )
-            self.framebuffers[-1].label = f"framebuffer_gbuffer_lighting_{i}"
-        self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
-        self.gbuffer_lighting = window.load_program("programs/gbuffer_lighting.glsl", defines=GLOBAL_DEFINE)
-        self.gbuffer_lighting.label = "prog_gbuffer_lighting"
+    def __init__(self, window: WindowConfig, size: tuple[int, int]) -> None:
+        self.irradiance_texture = window.ctx.texture(size=size, components=3, dtype="f2")
+        self.specular_texture = window.ctx.texture(size=size, components=3, dtype="f2")
 
-        self.stbnormals = window.load_texture_array("assets/stbn_cosine_normals.png", layers=64)
-        self.stbnormals.label = "texarr_stbn_cosine_normals"
-        self.stbnormals.filter = (moderngl.NEAREST, moderngl.NEAREST)
-        self.random_vec2 = window.load_texture_array("assets/stbn_vec2.png", layers=64)
-        self.random_vec2.label = "texarr_stbn_vec2"
-        self.random_vec2.filter = (moderngl.NEAREST, moderngl.NEAREST)
+        self.ambient_lighting = VoxelAmbientLighting(window, self.irradiance_texture)
+        self.direct_lighting = VoxelDirectLighting(window, self.irradiance_texture)
 
-        self.gbuffer_lighting["u_albedo"].value = 0
-        self.gbuffer_lighting["u_normal"].value = 1
-        self.gbuffer_lighting["u_depth"].value = 2
-        self.gbuffer_lighting["u_voxel_data"].value = 3
-        self.gbuffer_lighting["u_normals"].value = 4
-        self.gbuffer_lighting["u_random_vec2"].value = 5
-        self.gbuffer_lighting["u_motion_vector"].value = 6
-        self.gbuffer_lighting["u_last_frame"].value = 7
-        self.gbuffer_lighting["u_last_frame_depth"].value = 8
-        self.gbuffer_lighting["u_linear_depth"].value = 9
+        self.lighting_clearer = window.ctx.framebuffer(
+            color_attachments=[
+                self.specular_texture,
+                self.irradiance_texture,
+            ]
+        )
+        self.lighting_clearer.label = "framebuffer_voxel_lighting_clearer"
 
-    @property
-    def lighting_texture(self) -> Texture:
-        return cast("Texture", self.framebuffers[self.pingpong].color_attachments[0])
-
-    @property
-    def last_frame(self) -> Texture:
-        return cast("Texture", self.framebuffers[1 - self.pingpong].color_attachments[0])
-
-    def render(  # noqa: PLR0913
+    def render(
         self,
         camera: Camera,
         gbuffer: GBuffer,
         voxel_texture: Texture3D,
+        lights: Sequence[Light],
         frame_counter: int,
-        light_pos: Vec3,
-        last_frame_depth: Texture3D,
     ) -> None:
-        framebuffer = self.framebuffers[self.pingpong]
-        ctx = framebuffer.ctx
+        ctx = self.irradiance_texture.ctx
         ctx.disable(moderngl.DEPTH_TEST)
-        framebuffer.clear()
-        framebuffer.use()
+        self.lighting_clearer.clear(red=0, green=0, blue=0)
 
-        self.gbuffer_lighting["uCameraPos"].write(camera.position)
-        self.gbuffer_lighting["frame_counter"].value = frame_counter
-        self.gbuffer_lighting["uProjection"].write(camera.projection.matrix)
-        self.gbuffer_lighting["uView"].write(camera.matrix)
-        self.gbuffer_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))
-        self.gbuffer_lighting["uInvView"].write(glm.inverse(camera.matrix))
-        self.gbuffer_lighting["lightPos"].write(light_pos)
-        gbuffer.albedo_texture.use(location=0)
-        gbuffer.smooth_normal_texture.use(location=1)
-        gbuffer.depth_texture.use(location=2)
+        self.ambient_lighting.render(camera, gbuffer, voxel_texture, frame_counter)
+
+        ctx.enable_only(moderngl.BLEND)
+        ctx.blend_equation = moderngl.FUNC_ADD  # type:ignore[assignment]
+        ctx.blend_func = (moderngl.ONE, moderngl.ONE)
+        for light in lights:
+            self.direct_lighting.render(camera, gbuffer, voxel_texture, light, frame_counter)
+        ctx.disable(moderngl.BLEND)
+
+
+class VoxelAmbientLighting:
+    def __init__(self, window: WindowConfig, irradiance_texture: Texture) -> None:
+        self.framebuffer = window.ctx.framebuffer(color_attachments=[irradiance_texture])
+        self.framebuffer.label = "framebuffer_voxel_ambient_lighting"
+
+        self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
+        self.voxel_ambient_lighting = window.load_program("programs/voxel_ambient_lighting.glsl", defines=GLOBAL_DEFINE)
+        self.voxel_ambient_lighting.label = "prog_voxel_ambient_lighting"
+
+        self.stbnormals = window.load_texture_array("assets/stbn_cosine_normals.png", layers=64)
+        self.stbnormals.label = "texarr_stbn_cosine_normals"
+        self.stbnormals.filter = (moderngl.NEAREST, moderngl.NEAREST)
+
+    def render(self, camera: Camera, gbuffer: GBuffer, voxel_texture: Texture3D, frame_counter: int) -> None:
+        self.framebuffer.use()
+
+        self.voxel_ambient_lighting["uCameraPos"].write(camera.position)
+        self.voxel_ambient_lighting["frame_counter"].value = frame_counter
+        self.voxel_ambient_lighting["uProjection"].write(camera.projection.matrix)
+        self.voxel_ambient_lighting["uView"].write(camera.matrix)
+        self.voxel_ambient_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))
+        self.voxel_ambient_lighting["uInvView"].write(glm.inverse(camera.matrix))
+        gbuffer.smooth_normal_texture.use(location=0)
+        gbuffer.depth_texture.use(location=1)
+        gbuffer.linear_depth.use(location=2)
         voxel_texture.use(location=3)
         self.stbnormals.use(location=4)
-        self.random_vec2.use(location=5)
-        gbuffer.motion_vectors.use(location=6)
-        self.last_frame.use(location=7)
-        last_frame_depth.use(location=8)
-        gbuffer.linear_depth.use(location=9)
-        self.quad_fs.render(self.gbuffer_lighting)
 
-        self.pingpong = 1 - self.pingpong
+        self.quad_fs.render(self.voxel_ambient_lighting)
+
+
+class VoxelDirectLighting:
+    def __init__(self, window: WindowConfig, irradiance_texture: Texture) -> None:
+        self.framebuffer = window.ctx.framebuffer(color_attachments=[irradiance_texture])
+        self.framebuffer.label = "framebuffer_voxel_direct_lighting"
+
+        self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
+        self.voxel_direct_lighting = window.load_program("programs/voxel_direct_lighting.glsl", defines=GLOBAL_DEFINE)
+        self.voxel_direct_lighting.label = "prog_voxel_direct_lighting"
+
+        self.random_vec2 = window.load_texture_array("assets/stbn_vec2.png", layers=64)
+        self.random_vec2.label = "texarr_stbn_vec2"
+        self.random_vec2.filter = (moderngl.NEAREST, moderngl.NEAREST)
+
+    def render(
+        self,
+        camera: Camera,
+        gbuffer: GBuffer,
+        voxel_texture: Texture3D,
+        light: Light,
+        frame_counter: int,
+    ) -> None:
+        self.framebuffer.use()
+
+        self.voxel_direct_lighting["uCameraPos"].write(camera.position)
+        self.voxel_direct_lighting["frame_counter"].value = frame_counter
+        self.voxel_direct_lighting["uProjection"].write(camera.projection.matrix)
+        self.voxel_direct_lighting["uView"].write(camera.matrix)
+        self.voxel_direct_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))
+        self.voxel_direct_lighting["uInvView"].write(glm.inverse(camera.matrix))
+        self.voxel_direct_lighting["lightPos"].write(light.translation)
+        self.voxel_direct_lighting["lightRadius"] = light.radius
+        self.voxel_direct_lighting["lightColor"].write(light.color)
+        gbuffer.smooth_normal_texture.use(location=0)
+        gbuffer.depth_texture.use(location=1)
+        gbuffer.linear_depth.use(location=2)
+        voxel_texture.use(location=3)
+        self.random_vec2.use(location=4)
+
+        self.quad_fs.render(self.voxel_direct_lighting)
