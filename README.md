@@ -1,6 +1,6 @@
-# Project Name
+# voxo
 
-Short description of what this project does.
+Teardown-like voxel renderer
 
 ## Rendering Pipeline
 
@@ -72,5 +72,4 @@ virtualenv .env
 pip install .
 
 python -m voxo
-
-
+```
