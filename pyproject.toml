@@ -18,6 +18,7 @@ python_version = "3.13"
 files = ["src", "tests"]
 exclude = "^build/"
 strict = true
+disable_error_code = ["union-attr"]
 
 [[tool.mypy.overrides]]
 module = "tests.*"

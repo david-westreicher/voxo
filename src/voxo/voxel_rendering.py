@@ -1,16 +1,19 @@
 from dataclasses import dataclass, field
+from typing import cast
 
 import moderngl
-from moderngl import ComputeShader, Context, Program, Texture, Texture3D
+from moderngl import ComputeShader, Context, Framebuffer, Program, Texture, Texture3D
 from moderngl_window import geometry
 from moderngl_window.context.base import WindowConfig
 from moderngl_window.opengl.vao import VAO
 from moderngl_window.scene import Camera
 from pyglm import glm
 from pyglm.glm import mat4x4 as Mat4  # noqa: N812
+from pyglm.glm import vec3 as Vec3  # noqa: N812
 
 from .constants import GLOBAL_DEFINE, GLOBAL_OCCLUDER_DIMENSIONS
 from .model import Model
+from .rendering import GBuffer
 from .utils import Object
 
 
@@ -73,7 +76,7 @@ class GlobalOccluder:
         self.debug_shader: Program = window.load_program(
             "programs/debug_occluder.glsl", defines=defines | GLOBAL_DEFINE
         )
-        self.debug_shader["occluder_texture"].value = 0  # type:ignore[union-attr]
+        self.debug_shader["occluder_texture"].value = 0
         self.debug_shader.label = "prog_debug_occluder"
         self.debug_quad = geometry.quad_fs(normals=False, uvs=True)
 
@@ -93,8 +96,8 @@ class GlobalOccluder:
 
     def blit_object(self, voxel_object: VoxelObject) -> None:
         # TODO(david): only blit to affected bounding box
-        self.blitter["obj_dimensions"].write(glm.ivec3(voxel_object.model.opengl_dimensions))  # type:ignore[union-attr]
-        self.blitter["obj_transform_inv"].write(glm.inverse(voxel_object.transform))  # type:ignore[union-attr]
+        self.blitter["obj_dimensions"].write(glm.ivec3(voxel_object.model.opengl_dimensions))
+        self.blitter["obj_transform_inv"].write(glm.inverse(voxel_object.transform))
         voxel_object.voxel_texture.use(location=0)
         self.occluder_texture.bind_to_image(1, read=False, write=True, level=0)
         self.blitter.run(
@@ -130,10 +133,10 @@ class GlobalOccluder:
 
     def render_debug(self, camera: Camera) -> None:
         self.occluder_texture.use(location=0)
-        self.debug_shader["size"].write(glm.ivec3(GLOBAL_OCCLUDER_DIMENSIONS))  # type:ignore[union-attr]
-        self.debug_shader["uCameraPos"].write(camera.position)  # type:ignore[union-attr]
-        self.debug_shader["uInvProjection"].write(glm.inverse(camera.projection.matrix))  # type:ignore[union-attr]
-        self.debug_shader["uInvView"].write(glm.inverse(camera.matrix))  # type:ignore[union-attr]
+        self.debug_shader["size"].write(glm.ivec3(GLOBAL_OCCLUDER_DIMENSIONS))
+        self.debug_shader["uCameraPos"].write(camera.position)
+        self.debug_shader["uInvProjection"].write(glm.inverse(camera.projection.matrix))
+        self.debug_shader["uInvView"].write(glm.inverse(camera.matrix))
         self.debug_quad.render(self.debug_shader)
 
 
@@ -151,20 +154,100 @@ class VoxelRenderer:
         frame_counter: int,
     ) -> None:
         ctx = voxel_object.voxel_texture.ctx
-        self.program["m_proj"].write(camera.projection.matrix)  # type:ignore[union-attr]
-        self.program["m_model"].write(voxel_object.transform)  # type:ignore[union-attr]
-        self.program["m_model_inverse"].write(glm.inverse(voxel_object.transform))  # type:ignore[union-attr]
-        self.program["m_prev_model"].write(prev_model)  # type:ignore[union-attr]
-        self.program["m_prev_viewproj"].write(prev_viewproj)  # type:ignore[union-attr]
-        self.program["m_camera"].write(camera.matrix)  # type:ignore[union-attr]
-        self.program["uInvProjection"].write(glm.inverse(camera.projection.matrix))  # type:ignore[union-attr]
-        self.program["uInvView"].write(glm.inverse(camera.matrix))  # type:ignore[union-attr]
-        self.program["uCameraPos"].write(camera.position)  # type:ignore[union-attr]
-        self.program["u_voxel_data"].value = 0  # type:ignore[union-attr]
-        self.program["u_palette_data"].value = 1  # type:ignore[union-attr]
-        self.program["frame_counter"].value = frame_counter  # type:ignore[union-attr]
+        self.program["m_proj"].write(camera.projection.matrix)
+        self.program["m_model"].write(voxel_object.transform)
+        self.program["m_model_inverse"].write(glm.inverse(voxel_object.transform))
+        self.program["m_prev_model"].write(prev_model)
+        self.program["m_prev_viewproj"].write(prev_viewproj)
+        self.program["m_camera"].write(camera.matrix)
+        self.program["uInvProjection"].write(glm.inverse(camera.projection.matrix))
+        self.program["uInvView"].write(glm.inverse(camera.matrix))
+        self.program["uCameraPos"].write(camera.position)
+        self.program["u_voxel_data"].value = 0
+        self.program["u_palette_data"].value = 1
+        self.program["frame_counter"].value = frame_counter
 
         voxel_object.voxel_texture.use(location=0)
         voxel_object.palette_texture.use(location=1)
         voxel_object.geometry.render(self.program)
         ctx.enable(moderngl.DEPTH_TEST)
+
+
+class VoxelLighting:
+    def __init__(
+        self,
+        window: WindowConfig,
+        size: tuple[int, int],
+    ) -> None:
+        self.pingpong = 0
+        self.framebuffers: list[Framebuffer] = []
+        for i in range(2):
+            self.framebuffers.append(
+                window.ctx.framebuffer(color_attachments=[window.ctx.texture(size=size, components=3, dtype="f2")])
+            )
+            self.framebuffers[-1].label = f"framebuffer_gbuffer_lighting_{i}"
+        self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
+        self.gbuffer_lighting = window.load_program("programs/gbuffer_lighting.glsl", defines=GLOBAL_DEFINE)
+        self.gbuffer_lighting.label = "prog_gbuffer_lighting"
+
+        self.stbnormals = window.load_texture_array("assets/stbn_cosine_normals.png", layers=64)
+        self.stbnormals.label = "texarr_stbn_cosine_normals"
+        self.stbnormals.filter = (moderngl.NEAREST, moderngl.NEAREST)
+        self.random_vec2 = window.load_texture_array("assets/stbn_vec2.png", layers=64)
+        self.random_vec2.label = "texarr_stbn_vec2"
+        self.random_vec2.filter = (moderngl.NEAREST, moderngl.NEAREST)
+
+        self.gbuffer_lighting["u_albedo"].value = 0
+        self.gbuffer_lighting["u_normal"].value = 1
+        self.gbuffer_lighting["u_depth"].value = 2
+        self.gbuffer_lighting["u_voxel_data"].value = 3
+        self.gbuffer_lighting["u_normals"].value = 4
+        self.gbuffer_lighting["u_random_vec2"].value = 5
+        self.gbuffer_lighting["u_motion_vector"].value = 6
+        self.gbuffer_lighting["u_last_frame"].value = 7
+        self.gbuffer_lighting["u_last_frame_depth"].value = 8
+        self.gbuffer_lighting["u_linear_depth"].value = 9
+
+    @property
+    def lighting_texture(self) -> Texture:
+        return cast("Texture", self.framebuffers[self.pingpong].color_attachments[0])
+
+    @property
+    def last_frame(self) -> Texture:
+        return cast("Texture", self.framebuffers[1 - self.pingpong].color_attachments[0])
+
+    def render(  # noqa: PLR0913
+        self,
+        camera: Camera,
+        gbuffer: GBuffer,
+        voxel_texture: Texture3D,
+        frame_counter: int,
+        light_pos: Vec3,
+        last_frame_depth: Texture3D,
+    ) -> None:
+        framebuffer = self.framebuffers[self.pingpong]
+        ctx = framebuffer.ctx
+        ctx.disable(moderngl.DEPTH_TEST)
+        framebuffer.clear()
+        framebuffer.use()
+
+        self.gbuffer_lighting["uCameraPos"].write(camera.position)
+        self.gbuffer_lighting["frame_counter"].value = frame_counter
+        self.gbuffer_lighting["uProjection"].write(camera.projection.matrix)
+        self.gbuffer_lighting["uView"].write(camera.matrix)
+        self.gbuffer_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))
+        self.gbuffer_lighting["uInvView"].write(glm.inverse(camera.matrix))
+        self.gbuffer_lighting["lightPos"].write(light_pos)
+        gbuffer.albedo_texture.use(location=0)
+        gbuffer.smooth_normal_texture.use(location=1)
+        gbuffer.depth_texture.use(location=2)
+        voxel_texture.use(location=3)
+        self.stbnormals.use(location=4)
+        self.random_vec2.use(location=5)
+        gbuffer.motion_vectors.use(location=6)
+        self.last_frame.use(location=7)
+        last_frame_depth.use(location=8)
+        gbuffer.linear_depth.use(location=9)
+        self.quad_fs.render(self.gbuffer_lighting)
+
+        self.pingpong = 1 - self.pingpong

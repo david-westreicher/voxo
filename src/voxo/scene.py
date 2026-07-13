@@ -9,7 +9,7 @@ from pyglm import glm
 from .constants import CENTER, CENTER_GROUND
 from .model import parse_model
 from .utils import Object
-from .voxel import VoxelObject
+from .voxel_rendering import VoxelObject
 
 
 class Scene:
