@@ -15,7 +15,7 @@ Teardown-like voxel renderer
         │                                                │        └─────────────┘    
         │                                                │          Mip-Mapping      
         │                                                │                           
-        │  DDA Raymarch                                  │                           
+        │  DDA Raymarch per object                       │                           
         │                                                │                           
         ▼                                                ▼                           
   ┌───────────┐                                ┌──────────── Lighting ───────────┐   
@@ -37,8 +37,8 @@ Teardown-like voxel renderer
      │  └────────────────────────────┘            ├────┤ Specular             RGB16f│
      │                                            │    └────────────────────────────┘
      │                                            │                                  
-     │                             Post           ▼                                  
-     │                      ┌───── Processing ────────┐                              
+     │                                            ▼                                  
+     │                      ┌───  Post Processing   ──┐                              
      │                      │                         │                              
      └─────────────────────►│  ┌──────────────────┐   │                              
                             │  │ TAA Irradiance   │   │                              

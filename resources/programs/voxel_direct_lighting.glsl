@@ -18,7 +18,6 @@ void main() {
 
 in vec2 uv;
 
-uniform vec3 uCameraPos;
 uniform mat4 uView;
 uniform mat4 uProjection;
 uniform mat4 uInvView;
@@ -41,6 +40,8 @@ const float PI = 3.14159265;
 uint rnd_seed = uint(gl_FragCoord.x) + uint(gl_FragCoord.y) * 4097U + uint(frame_counter);
 int light_rand_state = int(rnd_seed) % 64;
 
+float linear_depth = texture(u_linear_depth, uv).r;
+vec3 camera_pos = uInvView[3].xyz;
 vec3 size = textureSize(u_voxel_data, 0);
 Box bbox = Box(vec3(0.0), vec3(size));
 int MAX_STEPS = int(max(size.x, max(size.y, size.z))) * 3;
@@ -56,18 +57,6 @@ vec2 generate_random_vec2(inout int seed) {
     seed = (seed + 1) % 64;
     vec3 rnd_normal_coord = vec3(mod(gl_FragCoord.xy, 128) / 128.0, seed);
     return texture(u_stbn_vec2, rnd_normal_coord).rg;
-}
-
-vec3 reconstructWorldPos(float depth)
-{
-    vec2 ndc = uv * 2.0 - 1.0;
-    // Depth buffer [0,1] -> NDC z [-1,1]
-    float ndcZ = depth * 2.0 - 1.0;
-    vec4 clipPos = vec4(ndc, ndcZ, 1.0);
-    // Clip space -> world space
-    vec4 worldPos = uInvView * uInvProjection * clipPos;
-    // Perspective divide
-    return worldPos.xyz / worldPos.w;
 }
 
 vec3 sample_disk_light(vec3 lightPos, vec3 lightNormal, float radius, vec2 xi) {
@@ -94,10 +83,9 @@ vec2 world_to_uv(vec3 world_pos)
 Hit screen_space_dda(Ray ray, int max_steps, usampler3D voxels, Box bbox) {
     vec3 world_pos = ray.origin + ray.direction;
     vec2 uv = world_to_uv(world_pos);
-    float screen_depth = texture(u_linear_depth, uv).r;
-    float sample_depth = distance(world_pos, uCameraPos);
+    float sample_depth = distance(world_pos, camera_pos);
     if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThan(uv, vec2(1.0)))
-            && screen_depth < sample_depth && sample_depth - screen_depth < 1.5) {
+            && linear_depth < sample_depth && sample_depth - linear_depth < 1.5) {
         Hit hit;
         hit.hit = true;
         hit.t = distance(ray.origin, world_pos);
@@ -129,13 +117,13 @@ vec3 compute_direct_lighting(vec3 pos, vec3 normal, vec3 light_pos) {
 }
 
 void main() {
-    Ray camera_ray = compute_camera_ray(uInvProjection, uInvView, uCameraPos, frame_counter, 0.0);
+    Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, 0, 0.0);
     float depth = texture(u_depth, uv).r;
     if (depth == 1.0) {
         return;
     }
     vec3 normal = decodeNormalRGB10A2(texture(u_normal, uv).rgb);
-    vec3 pos = reconstructWorldPos(depth);
+    vec3 pos = camera_ray.origin + camera_ray.direction * linear_depth;
     vec3 color = compute_direct_lighting(pos, normal, lightPos);
 
     out_irradiance = color;

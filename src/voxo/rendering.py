@@ -45,7 +45,6 @@ class GBuffer:
         self.framebuffer.label = f"framebuffer_gbuffer_{pingpong}"
 
     def start(self) -> None:
-        # clear both depth buffers
         self.framebuffer.color_mask = (
             [(False,) * 4] * (len(self.framebuffer.color_attachments) - 2) + [(True,) * 4] + [(False,) * 4]
         )
@@ -110,6 +109,7 @@ class GBufferDebug:
 class PostProcessing:
     def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int]) -> None:  # type: ignore[name-defined]
         self.final_texture = window.ctx.texture(size=size, components=3, dtype="f2")
+        self.final_texture.label = "tex2d_postprocessing_final"
         self.framebuffer = window.ctx.framebuffer(color_attachments=[self.final_texture])
         self.framebuffer.label = "framebuffer_postprocessing"
 

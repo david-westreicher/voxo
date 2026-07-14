@@ -22,6 +22,7 @@ uniform sampler2D u_motion_vectors;
 uniform sampler2D u_lighting;
 uniform bool full;
 const float exposure = 1.0;
+const float gamma = 2.4;
 
 in vec2 uv;
 
@@ -35,6 +36,32 @@ vec3 tonemap(vec3 hdr) {
     hdr *= exposure;
     vec3 ldr = hdr / (hdr + vec3(1.0));
     return ldr;
+}
+
+vec3 lumaBasedReinhardToneMapping(vec3 color)
+{
+    float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+    float toneMappedLuma = luma / (1. + luma);
+    color *= toneMappedLuma / luma;
+    color = pow(color, vec3(1. / gamma));
+    return color;
+}
+
+vec3 Uncharted2ToneMapping(vec3 color) {
+    float A = 0.15;
+    float B = 0.50;
+    float C = 0.10;
+    float D = 0.20;
+    float E = 0.02;
+    float F = 0.30;
+    float W = 11.2;
+    float exposure = 2.;
+    color *= exposure;
+    color = ((color * (A * color + C * B) + D * E) / (color * (A * color + B) + D * F)) - E / F;
+    float white = ((W * (A * W + C * B) + D * E) / (W * (A * W + B) + D * F)) - E / F;
+    color /= white;
+    color = pow(color, vec3(1. / gamma));
+    return color;
 }
 
 void main() {
@@ -61,7 +88,7 @@ void main() {
         {
             float checker = mod(floor(gl_FragCoord.x / 32.0) + floor(gl_FragCoord.y / 32.0), 2.0);
             color = mix(vec3(0.1), vec3(0.9), checker);
-            color = tonemap(texture(u_lighting, local).rgb);
+            color = lumaBasedReinhardToneMapping(texture(u_lighting, local).rgb);
         }
         else
         {

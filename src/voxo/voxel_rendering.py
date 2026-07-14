@@ -132,8 +132,6 @@ class GlobalOccluder:
 
     def render_debug(self, camera: Camera) -> None:
         self.occluder_texture.use(location=0)
-        self.debug_shader["size"].write(glm.ivec3(GLOBAL_OCCLUDER_DIMENSIONS))
-        self.debug_shader["uCameraPos"].write(camera.position)
         self.debug_shader["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.debug_shader["uInvView"].write(glm.inverse(camera.matrix))
         self.debug_quad.render(self.debug_shader)
@@ -161,7 +159,6 @@ class VoxelRenderer:
         self.program["m_camera"].write(camera.matrix)
         self.program["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.program["uInvView"].write(glm.inverse(camera.matrix))
-        self.program["uCameraPos"].write(camera.position)
         self.program["u_voxel_data"].value = 0
         self.program["u_palette_data"].value = 1
         self.program["frame_counter"].value = frame_counter
@@ -226,7 +223,6 @@ class VoxelAmbientLighting:
     def render(self, camera: Camera, gbuffer: GBuffer, voxel_texture: Texture3D, frame_counter: int) -> None:
         self.framebuffer.use()
 
-        self.voxel_ambient_lighting["uCameraPos"].write(camera.position)
         self.voxel_ambient_lighting["frame_counter"].value = frame_counter
         self.voxel_ambient_lighting["uProjection"].write(camera.projection.matrix)
         self.voxel_ambient_lighting["uView"].write(camera.matrix)
@@ -264,7 +260,6 @@ class VoxelDirectLighting:
     ) -> None:
         self.framebuffer.use()
 
-        self.voxel_direct_lighting["uCameraPos"].write(camera.position)
         self.voxel_direct_lighting["frame_counter"].value = frame_counter
         self.voxel_direct_lighting["uProjection"].write(camera.projection.matrix)
         self.voxel_direct_lighting["uView"].write(camera.matrix)

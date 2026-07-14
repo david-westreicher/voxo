@@ -99,7 +99,7 @@ class VoxoWindow(CameraWindow):
                 self.global_occluder.blit_object(voxel_object)
             self.global_occluder.update_mipmaps()
 
-        # Render into HDR framebuffer
+        # Fill GBuffer
         gbuffer = self.gbuffer.current
         gbuffer.start()
         for i, voxel_object in enumerate(self.scene.voxel_objects):

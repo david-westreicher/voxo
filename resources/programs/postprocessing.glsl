@@ -30,8 +30,8 @@ layout(location = 0) out vec3 fragColor;
 void main() {
     float depth = texture(u_depth, uv).r;
     if (depth == 1.0) {
-        Ray camera_ray = compute_camera_ray(uInvProjection, uInvView, vec3(0.0), 0, 0.0);
-        fragColor = skyColor(camera_ray.direction);
+        Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, 0, 0.0);
+        fragColor = skyColor(camera_ray.direction, true);
         return;
     }
     vec3 albedo = texture(u_albedo, uv).rgb;
