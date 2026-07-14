@@ -14,7 +14,7 @@ void main() {
 
 #elif defined FRAGMENT_SHADER
 #include programs/utils.glsl
-#line 19
+#line 18 3
 
 in vec2 uv;
 
@@ -40,18 +40,12 @@ const float PI = 3.14159265;
 uint rnd_seed = uint(gl_FragCoord.x) + uint(gl_FragCoord.y) * 4097U + uint(frame_counter);
 int light_rand_state = int(rnd_seed) % 64;
 
+mat4 projectionview = uProjection * uView;
 float linear_depth = texture(u_linear_depth, uv).r;
 vec3 camera_pos = uInvView[3].xyz;
 vec3 size = textureSize(u_voxel_data, 0);
 Box bbox = Box(vec3(0.0), vec3(size));
 int MAX_STEPS = int(max(size.x, max(size.y, size.z))) * 3;
-
-vec3 decodeNormalRGB10A2(vec3 encoded)
-{
-    // map [0,1] -> [-1,1]
-    vec3 decoded = encoded * 2.0 - 1.0;
-    return normalize(decoded);
-}
 
 vec2 generate_random_vec2(inout int seed) {
     seed = (seed + 1) % 64;
@@ -71,31 +65,6 @@ vec3 sample_disk_light(vec3 lightPos, vec3 lightNormal, float radius, vec2 xi) {
         B * (r * sin(phi));
 }
 
-vec2 world_to_uv(vec3 world_pos)
-{
-    vec4 clip = uProjection * uView * vec4(world_pos, 1.0);
-    if (clip.w <= 0.0)
-        return vec2(-1.0); // behind the camera
-    vec3 ndc = clip.xyz / clip.w;
-    return ndc.xy * 0.5 + 0.5;
-}
-
-Hit screen_space_dda(Ray ray, int max_steps, usampler3D voxels, Box bbox) {
-    vec3 world_pos = ray.origin + ray.direction;
-    vec2 uv = world_to_uv(world_pos);
-    float screen_depth = texture(u_linear_depth, uv).r;
-    float sample_depth = distance(world_pos, camera_pos);
-    if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThan(uv, vec2(1.0)))
-            && screen_depth < sample_depth && sample_depth - screen_depth < 1.5) {
-        Hit hit;
-        hit.hit = true;
-        hit.t = distance(ray.origin, world_pos);
-        return hit;
-    }
-    ray.origin = world_pos;
-    return dda(ray, max_steps, voxels, bbox);
-}
-
 vec3 compute_direct_lighting(vec3 pos, vec3 normal, vec3 light_pos) {
     vec3 ray_start = pos + normal * 0.01;
 
@@ -103,7 +72,7 @@ vec3 compute_direct_lighting(vec3 pos, vec3 normal, vec3 light_pos) {
     vec3 light_center = sample_disk_light(light_pos, normalize(pos - light_pos), lightRadius, generate_random_vec2(light_rand_state));
     vec3 L = normalize(light_pos - pos); // direction to light
     Ray sun_ray = Ray(ray_start, normalize(light_center - ray_start));
-    Hit sun_hit = screen_space_dda(sun_ray, MAX_STEPS, u_voxel_data, bbox);
+    Hit sun_hit = screen_space_dda(sun_ray, MAX_STEPS, u_voxel_data, projectionview, u_linear_depth, camera_pos, bbox);
     if (!sun_hit.hit) {
         float distance = length(light_pos - pos);
         // Lambert cosine term

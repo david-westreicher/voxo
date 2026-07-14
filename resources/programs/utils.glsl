@@ -1,5 +1,5 @@
-# line 0
 #include programs/random.glsl
+# line 2 2
 
 #define SCREEN_DIMENSIONS vec2(1, 1)
 
@@ -139,6 +139,30 @@ Hit dda(Ray ray, int max_steps, usampler3D voxels, Box bbox) {
     return hit;
 }
 
+vec2 world_to_uv(vec3 world_pos, mat4x4 projectionview) {
+    vec4 clip = projectionview * vec4(world_pos, 1.0);
+    if (clip.w <= 0.0)
+        return vec2(-1.0); // behind the camera
+    vec3 ndc = clip.xyz / clip.w;
+    return ndc.xy * 0.5 + 0.5;
+}
+
+Hit screen_space_dda(Ray ray, int max_steps, usampler3D voxels, mat4x4 projview, sampler2D linear_depth, vec3 camera_pos, Box bbox) {
+    vec3 world_pos = ray.origin + ray.direction;
+    vec2 uv = world_to_uv(world_pos, projview);
+    float screen_depth = texture(linear_depth, uv).r;
+    float sample_depth = distance(world_pos, camera_pos);
+    if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThan(uv, vec2(1.0)))
+            && screen_depth < sample_depth && sample_depth - screen_depth < 1.5) {
+        Hit hit;
+        hit.hit = true;
+        hit.t = distance(ray.origin, world_pos);
+        return hit;
+    }
+    ray.origin = world_pos;
+    return dda(ray, max_steps, voxels, bbox);
+}
+
 bool intersectAABB(
     Ray ray,
     Box bbox,
@@ -174,4 +198,11 @@ Ray transform_to_local_ray(Ray world_ray, mat4 model_inverse) {
     vec3 origin = (model_inverse * vec4(world_ray.origin, 1.0)).xyz;
     vec3 direction = normalize((model_inverse * vec4(world_ray.direction, 0.0)).xyz);
     return Ray(origin, direction);
+}
+
+vec3 decodeNormalRGB10A2(vec3 encoded)
+{
+    // map [0,1] -> [-1,1]
+    vec3 decoded = encoded * 2.0 - 1.0;
+    return normalize(decoded);
 }

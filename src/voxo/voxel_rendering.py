@@ -61,20 +61,17 @@ class VoxelObject(Object):
 class GlobalOccluder:
     def __init__(self, window: WindowConfig, dimensions: tuple[int, int, int]) -> None:
         self.dimensions = dimensions
-        defines = {"GLOBAL_DIMENSIONS": f"ivec3({','.join(f'{d}.0' for d in dimensions)})"}
-        self.blitter: ComputeShader = window.load_compute_shader("programs/blitter.glsl", defines=defines)
+        self.blitter: ComputeShader = window.load_compute_shader("programs/blitter.glsl")
         self.blitter["voxel_texture"].value = 0
         self.blitter.label = "prog_blitter"
 
-        self.clearer: ComputeShader = window.load_compute_shader("programs/clearer.glsl", defines=defines)
+        self.clearer: ComputeShader = window.load_compute_shader("programs/clearer.glsl")
         self.clearer.label = "prog_clearer"
 
-        self.mipmapper: ComputeShader = window.load_compute_shader("programs/occluder_mipmapper.glsl", defines=defines)
+        self.mipmapper: ComputeShader = window.load_compute_shader("programs/occluder_mipmapper.glsl")
         self.mipmapper.label = "prog_occluder_mipmapper"
 
-        self.debug_shader: Program = window.load_program(
-            "programs/debug_occluder.glsl", defines=defines | GLOBAL_DEFINE
-        )
+        self.debug_shader: Program = window.load_program("programs/debug_occluder.glsl", defines=GLOBAL_DEFINE)
         self.debug_shader["occluder_texture"].value = 0
         self.debug_shader.label = "prog_debug_occluder"
         self.debug_quad = geometry.quad_fs(normals=False, uvs=True)
