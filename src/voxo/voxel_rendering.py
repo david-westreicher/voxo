@@ -33,7 +33,7 @@ class VoxelObject(Object):
             components=1,
             alignment=1,
             dtype="u1",
-            mip_maps=True,
+            create_mip_maps=True,
         )
         self._voxel_texture.label = f"tex3d_model_{self.model.name}"
         self._voxel_texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
@@ -85,7 +85,7 @@ class GlobalOccluder:
             components=1,
             alignment=1,
             dtype="u1",
-            mip_maps=True,
+            create_mip_maps=True,
         )
         self.occluder_texture.filter = moderngl.NEAREST_MIPMAP_NEAREST, moderngl.NEAREST
         self.occluder_texture.label = "tex3d_global_occluder"

@@ -83,9 +83,10 @@ vec2 world_to_uv(vec3 world_pos)
 Hit screen_space_dda(Ray ray, int max_steps, usampler3D voxels, Box bbox) {
     vec3 world_pos = ray.origin + ray.direction;
     vec2 uv = world_to_uv(world_pos);
+    float screen_depth = texture(u_linear_depth, uv).r;
     float sample_depth = distance(world_pos, camera_pos);
     if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThan(uv, vec2(1.0)))
-            && linear_depth < sample_depth && sample_depth - linear_depth < 1.5) {
+            && screen_depth < sample_depth && sample_depth - screen_depth < 1.5) {
         Hit hit;
         hit.hit = true;
         hit.t = distance(ray.origin, world_pos);

@@ -94,42 +94,46 @@ class VoxoWindow(CameraWindow):
             self.scene.update(time)
 
             # Update Occluder
-            self.global_occluder.clear()
-            for voxel_object in self.scene.voxel_objects:
-                self.global_occluder.blit_object(voxel_object)
-            self.global_occluder.update_mipmaps()
+            with self.ctx.debug_scope("update occluder"):
+                self.global_occluder.clear()
+                for voxel_object in self.scene.voxel_objects:
+                    self.global_occluder.blit_object(voxel_object)
+                self.global_occluder.update_mipmaps()
 
         # Fill GBuffer
-        gbuffer = self.gbuffer.current
-        gbuffer.start()
-        for i, voxel_object in enumerate(self.scene.voxel_objects):
-            self.voxel_renderer.render(
-                self.camera,
-                voxel_object,
-                self.scene.last_frame_transforms[i],
-                self.last_frame_projview,
-                self.frame_counter,
-            )
-        self.last_frame_projview = cast("Mat4", self.camera.projection.matrix @ self.camera.matrix)
-        self.scene.update_lastframe_transforms()
+        with self.ctx.debug_scope("fill gbuffer"):
+            gbuffer = self.gbuffer.current
+            gbuffer.start()
+            for i, voxel_object in enumerate(self.scene.voxel_objects):
+                self.voxel_renderer.render(
+                    self.camera,
+                    voxel_object,
+                    self.scene.last_frame_transforms[i],
+                    self.last_frame_projview,
+                    self.frame_counter,
+                )
+            self.last_frame_projview = cast("Mat4", self.camera.projection.matrix @ self.camera.matrix)
+            self.scene.update_lastframe_transforms()
 
         # Compute lighting
-        gbuffer.smooth_normals(self.camera)
-        self.voxel_lighting.render(
-            self.camera,
-            gbuffer,
-            self.global_occluder.occluder_texture,
-            self.scene.lights,
-            self.frame_counter,
-        )
+        with self.ctx.debug_scope("compute lighting"):
+            gbuffer.smooth_normals(self.camera)
+            self.voxel_lighting.render(
+                self.camera,
+                gbuffer,
+                self.global_occluder.occluder_texture,
+                self.scene.lights,
+                self.frame_counter,
+            )
 
         # Post processing
-        self.post_processing.render(
-            self.camera,
-            gbuffer.albedo_texture,
-            self.voxel_lighting.irradiance_texture,
-            gbuffer.depth_texture,
-        )
+        with self.ctx.debug_scope("post processing"):
+            self.post_processing.render(
+                self.camera,
+                gbuffer.albedo_texture,
+                self.voxel_lighting.irradiance_texture,
+                gbuffer.depth_texture,
+            )
 
         # Render framebuffer onto screen
         self.ctx.screen.use()

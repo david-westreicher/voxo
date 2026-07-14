@@ -106,18 +106,14 @@ vec3 compute_ambient_lighting(vec3 pos, vec3 normal, Pcg32State rnd) {
     vec3 ray_start = pos + normal * 0.01;
 
     // Ambient Occlusion
-    float ambient_gathered = 0;
     vec3 ambient = vec3(0.0);
     for (int occ_sample; occ_sample < MAX_OCC_SAMPLES; occ_sample += 1) {
         vec3 jitter_point = (pcg_random_vec3(rnd) - 0.5); // use stbn random vec3
         vec3 jitter = jitter_point - normal * dot(jitter_point, normal);
         Ray occ_ray = Ray(ray_start + jitter, generate_random_cosine_weighted_normal(normal, normal_rand_state));
         Hit occ_hit = screen_space_dda(occ_ray, MAX_OCC_DISTANCE, u_global_occluder, bbox);
-        if (occ_hit.hit) {
-            ambient_gathered += clamp(occ_hit.t, 0, MAX_OCC_DISTANCE);
-        } else {
+        if (!occ_hit.hit) {
             ambient += skyColor(occ_ray.direction, false);
-            ambient_gathered += MAX_OCC_DISTANCE;
         }
     }
     return ambient / MAX_OCC_SAMPLES;
