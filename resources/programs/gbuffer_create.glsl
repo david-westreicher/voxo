@@ -20,7 +20,6 @@ void main() {
 #include programs/utils.glsl
 #line 22
 
-uniform vec3 uCameraPos;
 uniform mat4 uInvView;
 uniform mat4 uInvProjection;
 uniform usampler3D u_voxel_data;
@@ -56,22 +55,23 @@ vec3 encodeNormalRGB10A2(vec3 normal) {
 }
 
 vec2 compute_motion_vector(
+    vec2 screen_uv,
     vec3 currentGlobalPos,
     mat4 model,
     mat4 prevModel,
     mat4 prevViewProj
 ) {
-    vec2 uv = gl_FragCoord.xy / SCREEN_DIMENSIONS;
     vec3 localPos = (m_model_inverse * vec4(currentGlobalPos, 1.0)).xyz;
     vec4 prevWorldPos = prevModel * vec4(localPos, 1.0);
     vec4 prevClip = prevViewProj * prevWorldPos;
     vec2 prevNDC = prevClip.xy / prevClip.w;
     vec2 prevUV = prevNDC * 0.5 + 0.5;
-    return prevUV - uv;
+    return prevUV - screen_uv;
 }
 
 void main() {
-    Ray camera_ray = compute_camera_ray(uInvProjection, uInvView, uCameraPos, frame_counter, 0.5);
+    vec2 screen_uv = gl_FragCoord.xy / SCREEN_DIMENSIONS;
+    Ray camera_ray = compute_camera_ray(screen_uv, uInvProjection, uInvView, frame_counter, 0.5);
     Ray local_ray = transform_to_local_ray(camera_ray, m_model_inverse);
 
     float t;
@@ -85,7 +85,7 @@ void main() {
             u_albedo = texture(u_palette_data, palette_coord).rgb;
             u_normal = encodeNormalRGB10A2(normalize((m_model * vec4(hit.normal, 0.0)).xyz));
             u_linear_depth = distance(local_ray.origin, hit.position);
-            u_motion_vector = compute_motion_vector(world_space_hit, m_model, m_prev_model, m_prev_viewproj);
+            u_motion_vector = compute_motion_vector(screen_uv, world_space_hit, m_model, m_prev_model, m_prev_viewproj);
             gl_FragDepth = worldPosToDepth(world_space_hit);
         } else {
             discard;

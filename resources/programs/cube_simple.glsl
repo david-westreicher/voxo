@@ -24,13 +24,13 @@ void main() {
 #elif defined FRAGMENT_SHADER
 
 out vec4 fragColor;
-uniform vec4 color;
+uniform vec3 color;
 
 in vec3 pos;
 in vec3 normal;
 
 void main() {
     float l = dot(normalize(-pos), normalize(normal));
-    fragColor = color * (0.25 + abs(l) * 0.75);
+    fragColor = vec4(color, 1.0) * (0.25 + abs(l) * 0.75);
 }
 #endif

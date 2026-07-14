@@ -1,5 +1,5 @@
-# line 0
 #include programs/random.glsl
+# line 2 2
 
 #define SCREEN_DIMENSIONS vec2(1, 1)
 
@@ -21,16 +21,48 @@ struct Box {
     vec3 max;
 };
 
-Ray compute_camera_ray(mat4 uInvProjection, mat4 uInvView, vec3 uCameraPos, int frame_counter, float jitter_scale) {
+Ray compute_camera_ray(vec2 screen_uv, mat4 uInvProjection, mat4 uInvView, int frame_counter, float jitter_scale) {
     vec2 jitter = halton2D(frame_counter) - vec2(0.5);
-    vec2 ndc = (gl_FragCoord.xy + jitter * jitter_scale) / SCREEN_DIMENSIONS * 2.0 - 1.0;
+    vec2 ndc = (screen_uv + jitter * jitter_scale / SCREEN_DIMENSIONS) * 2.0 - 1.0;
     vec4 clip = vec4(ndc, -1.0, 1.0);
     vec4 eye = uInvProjection * clip;
     eye = vec4(eye.xy, -1.0, 0.0);
-    return Ray(uCameraPos, normalize((uInvView * eye).xyz));
+    vec3 cameraPos = uInvView[3].xyz;
+    return Ray(cameraPos, normalize((uInvView * eye).xyz));
 }
 
-vec3 skyColor(vec3 rayDir) {
+vec3 skyColor(vec3 rd, bool with_sun)
+{
+    vec3 sunDir = normalize(vec3(1, 1, 1));
+    float sun = max(dot(rd, sunDir), 0.0);
+    float up = max(rd.y, 0.0);
+
+    vec3 zenith = vec3(0.18, 0.35, 1.00);
+    vec3 horizon = vec3(0.75, 0.85, 1.20);
+    vec3 ground = vec3(0.03);
+
+    vec3 color = mix(horizon, zenith, pow(up, 0.35));
+
+    color = mix(
+            ground,
+            color,
+            smoothstep(-0.05, 0.02, rd.y)
+        );
+
+    // Warm horizon glow
+    color += vec3(1.0, 0.6, 0.2) * pow(1.0 - up, 6.0) * 0.5;
+
+    if (with_sun) {
+        // Sun halo
+        color += vec3(20.0, 18.0, 14.0) * pow(sun, 128.0);
+
+        // Sun disc (HDR)
+        color += vec3(200.0) * pow(sun, 40.0);
+    }
+    return color;
+}
+
+vec3 skyColor2(vec3 rayDir) {
     vec3 dir = normalize(rayDir);
 
     // Map y from [-1,1] to [0,1]
@@ -70,7 +102,8 @@ Hit dda(Ray ray, int max_steps, usampler3D voxels, Box bbox) {
     sideDist = (S - stepDir * fract(pos)) * deltaDist;
 
     bool has_entered = is_inside_box(map, bbox);
-    for (int i = 0; i < max_steps; i++) {
+    int i;
+    for (i = 0; i < max_steps; i++) {
         vec4 conds = step(sideDist.xxyy, sideDist.yzzx);
         vec3 cases = vec3(0);
         cases.x = conds.x * conds.y;
@@ -90,7 +123,7 @@ Hit dda(Ray ray, int max_steps, usampler3D voxels, Box bbox) {
             break;
         }
     }
-    if (!has_entered) {
+    if (!has_entered || i == max_steps) {
         return hit;
     }
     vec3 normal = vec3(0.0);
@@ -104,6 +137,30 @@ Hit dda(Ray ray, int max_steps, usampler3D voxels, Box bbox) {
     hit.voxel = map;
     hit.normal = normal;
     return hit;
+}
+
+vec2 world_to_uv(vec3 world_pos, mat4x4 projectionview) {
+    vec4 clip = projectionview * vec4(world_pos, 1.0);
+    if (clip.w <= 0.0)
+        return vec2(-1.0); // behind the camera
+    vec3 ndc = clip.xyz / clip.w;
+    return ndc.xy * 0.5 + 0.5;
+}
+
+Hit screen_space_dda(Ray ray, int max_steps, usampler3D voxels, mat4x4 projview, sampler2D linear_depth, vec3 camera_pos, Box bbox) {
+    vec3 world_pos = ray.origin + ray.direction;
+    vec2 uv = world_to_uv(world_pos, projview);
+    float screen_depth = texture(linear_depth, uv).r;
+    float sample_depth = distance(world_pos, camera_pos);
+    if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThan(uv, vec2(1.0)))
+            && screen_depth < sample_depth && sample_depth - screen_depth < 1.5) {
+        Hit hit;
+        hit.hit = true;
+        hit.t = distance(ray.origin, world_pos);
+        return hit;
+    }
+    ray.origin = world_pos;
+    return dda(ray, max_steps, voxels, bbox);
 }
 
 bool intersectAABB(
@@ -141,4 +198,11 @@ Ray transform_to_local_ray(Ray world_ray, mat4 model_inverse) {
     vec3 origin = (model_inverse * vec4(world_ray.origin, 1.0)).xyz;
     vec3 direction = normalize((model_inverse * vec4(world_ray.direction, 0.0)).xyz);
     return Ray(origin, direction);
+}
+
+vec3 decodeNormalRGB10A2(vec3 encoded)
+{
+    // map [0,1] -> [-1,1]
+    vec3 decoded = encoded * 2.0 - 1.0;
+    return normalize(decoded);
 }

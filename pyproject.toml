@@ -3,7 +3,10 @@ name = "voxo"
 version = "0.1.0"
 authors = [{ name = "David Westreicher" }]
 requires-python = ">=3.13"
-dependencies = ["moderngl==5.12.0", "moderngl_window==3.1.1"]
+dependencies = [
+    "moderngl @ git+https://github.com/david-westreicher/moderngl.git",
+    "moderngl_window==3.1.1",
+]
 
 [project.optional-dependencies]
 dev = ["pytest==9.1.1", "mypy==2.1.0", "ruff==0.15.20"]
@@ -18,6 +21,7 @@ python_version = "3.13"
 files = ["src", "tests"]
 exclude = "^build/"
 strict = true
+disable_error_code = ["union-attr"]
 
 [[tool.mypy.overrides]]
 module = "tests.*"
