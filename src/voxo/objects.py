@@ -70,7 +70,11 @@ class VoxelObject(Object):
     _palette_texture: Texture | None = None
 
     def __post_init__(self) -> None:
-        self.geometry = geometry.cube(size=self.model.opengl_dimensions)
+        self._center_translation = glm.vec3(self.model.opengl_dimensions) * 0.5
+        self.geometry = geometry.cube(
+            size=self.model.opengl_dimensions,
+            center=tuple(self._center_translation),
+        )
 
     def upload_to_gpu(self, ctx: Context) -> None:
         self._voxel_texture = ctx.texture3d(
@@ -92,6 +96,13 @@ class VoxelObject(Object):
         self._palette_texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
         self._palette_texture.repeat_x = False
         self._palette_texture.repeat_y = False
+
+    @property
+    def transform(self) -> Mat4:
+        return cast(
+            "Mat4",
+            glm.translate(self.translation) @ glm.mat4_cast(self.rotation) @ glm.scale(self.scale),
+        )
 
     @property
     def voxel_texture(self) -> Texture3D:

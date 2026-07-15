@@ -216,8 +216,8 @@ class VoxelDirectLighting:
     def _setup_uniforms(self, prog: Program, camera: Camera, frame_counter: int) -> None:
         # TODO(david): This could be a context managers job, setup only once per frame, not per object
         prog["frame_counter"].value = frame_counter
-        prog["uProjection"].write(camera.projection.matrix)
-        prog["uView"].write(camera.matrix)
+        # prog["uProjection"].write(camera.projection.matrix)
+        # prog["uView"].write(camera.matrix)
         prog["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         prog["uInvView"].write(glm.inverse(camera.matrix))
 

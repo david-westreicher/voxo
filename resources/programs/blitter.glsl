@@ -16,7 +16,7 @@ void main()
         return;
 
     vec3 global_pos = vec3(global_voxel) + 0.5;
-    vec3 obj_pos = (obj_transform_inv * vec4(global_pos, 1.0)).xyz + vec3(obj_dimensions) * 0.5;
+    vec3 obj_pos = (obj_transform_inv * vec4(global_pos, 1.0)).xyz;
     ivec3 obj_voxel = ivec3(floor(obj_pos));
     if (any(lessThan(obj_voxel, ivec3(0))) || any(greaterThanEqual(obj_voxel, obj_dimensions)))
     {

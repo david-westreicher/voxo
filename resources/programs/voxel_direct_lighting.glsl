@@ -72,14 +72,14 @@ vec3 sample_disk_light(vec3 lightPos, vec3 lightNormal, float radius, vec2 xi) {
 }
 
 vec3 compute_direct_light(vec3 pos, vec3 normal, vec3 light_pos) {
-    vec3 ray_start = pos + normal * 0.01;
+    vec3 ray_start = pos + normal * 0.5;
 
     // Shadow ray
     vec3 light_center = sample_disk_light(light_pos, normalize(pos - light_pos), lightRadius, generate_random_vec2(light_rand_state));
     vec3 L = normalize(light_pos - pos); // direction to light
     Ray sun_ray = Ray(ray_start, normalize(light_center - ray_start));
-    Hit sun_hit = screen_space_dda(sun_ray, MAX_STEPS, u_voxel_data, projectionview, u_linear_depth, camera_pos, bbox);
-    if (!sun_hit.hit) {
+    Hit sun_hit = dda(sun_ray, MAX_STEPS, u_voxel_data, bbox);
+    if (!sun_hit.hit || sun_hit.t > distance(pos, light_pos)) {
         float distance = length(light_pos - pos);
         // Lambert cosine term
         float NdotL = max(dot(normal, L), 0.0);
@@ -93,13 +93,14 @@ vec3 compute_direct_light(vec3 pos, vec3 normal, vec3 light_pos) {
 }
 
 vec3 compute_direct_sun(vec3 pos, vec3 normal, vec3 sun_direction) {
-    vec3 ray_start = pos + normal * 0.01;
+    vec3 ray_start = pos + normal * 0.5;
 
     // Shadow ray
     vec3 L = normalize(sample_disk_light(sun_direction, normalize(sun_direction), lightRadius, generate_random_vec2(light_rand_state))); // direction to light
 
     Ray sun_ray = Ray(ray_start, L);
-    Hit sun_hit = screen_space_dda(sun_ray, MAX_STEPS, u_voxel_data, projectionview, u_linear_depth, camera_pos, bbox);
+    //Hit sun_hit = screen_space_dda(sun_ray, MAX_STEPS, u_voxel_data, projectionview, u_linear_depth, camera_pos, bbox);
+    Hit sun_hit = dda(sun_ray, MAX_STEPS, u_voxel_data, bbox);
     if (!sun_hit.hit) {
         // Lambert cosine term
         float NdotL = max(dot(normal, L), 0.0);

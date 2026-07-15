@@ -28,12 +28,12 @@ uniform int frame_counter;
 layout(binding = 0) uniform sampler2D u_normal;
 layout(binding = 1) uniform sampler2D u_depth;
 layout(binding = 2) uniform sampler2D u_linear_depth;
-layout(binding = 3) uniform sampler3D u_global_occluder;
+layout(binding = 3) uniform usampler3D u_global_occluder;
 layout(binding = 4) uniform sampler2DArray u_stbn_normals;
 
 layout(location = 0) out vec3 out_irradiance;
 
-const int MAX_OCC_SAMPLES = 3;
+const int MAX_OCC_SAMPLES = 5;
 const int MAX_OCC_DISTANCE = 40;
 
 uint rnd_seed = uint(gl_FragCoord.x) + uint(gl_FragCoord.y) * 4097U + uint(frame_counter);
@@ -50,13 +50,13 @@ vec3 compute_ambient_lighting(vec3 pos, vec3 normal, Pcg32State rnd) {
 
     // Ambient Lighting
     vec3 ambient = vec3(0.0);
-    for (int occ_sample; occ_sample < MAX_OCC_SAMPLES; occ_sample += 1) {
+    for (int occ_sample = 0; occ_sample < MAX_OCC_SAMPLES; occ_sample += 1) {
         vec3 jitter_point = (pcg_random_vec3(rnd) - 0.5); // use stbn random vec3
         vec3 jitter = jitter_point - normal * dot(jitter_point, normal);
         Ray occ_ray = Ray(ray_start + jitter, generate_random_cosine_weighted_normal(normal, u_stbn_normals, normal_rand_state));
         Hit occ_hit = screen_space_dda(occ_ray, MAX_OCC_DISTANCE, u_global_occluder, projectionview, u_linear_depth, camera_pos, bbox);
         if (!occ_hit.hit) {
-            ambient += skyColor(occ_ray.direction, false);
+            ambient += skyColor(occ_ray.direction, vec3(0, -1, 0));
         }
         // TODO(david): We could take a screen space sample here from the last frame's irradiance texture, also use rejection
     }

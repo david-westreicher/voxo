@@ -31,10 +31,8 @@ Ray compute_camera_ray(vec2 screen_uv, mat4 uInvProjection, mat4 uInvView, int f
     return Ray(cameraPos, normalize((uInvView * eye).xyz));
 }
 
-vec3 skyColor(vec3 rd, bool with_sun)
+vec3 skyColor(vec3 rd, vec3 sunDir)
 {
-    vec3 sunDir = normalize(vec3(1, 1, 1));
-    float sun = max(dot(rd, sunDir), 0.0);
     float up = max(rd.y, 0.0);
 
     vec3 zenith = vec3(0.18, 0.35, 1.00);
@@ -52,7 +50,8 @@ vec3 skyColor(vec3 rd, bool with_sun)
     // Warm horizon glow
     color += vec3(1.0, 0.6, 0.2) * pow(1.0 - up, 6.0) * 0.5;
 
-    if (with_sun) {
+    if (sunDir.y >= 0) {
+        float sun = max(dot(rd, sunDir), 0.0);
         // Sun halo
         color += vec3(20.0, 18.0, 14.0) * pow(sun, 128.0);
 
@@ -79,9 +78,8 @@ bool is_inside_box(vec3 p, Box box) {
         all(lessThan(p, box.max));
 }
 
-uint voxelmap(vec3 p, Box bbox, usampler3D u_voxel_data)
-{
-    vec3 local_coord = (p - bbox.min + 0.5) / (bbox.max - bbox.min);
+uint voxelmap(vec3 p, Box bbox, usampler3D u_voxel_data) {
+    vec3 local_coord = (p + 0.5) / (bbox.max - bbox.min);
     return textureLod(u_voxel_data, local_coord, 0.0).r;
 }
 
@@ -180,18 +178,18 @@ bool intersectAABB(
     float tFar = min(min(tMax.x, tMax.y), tMax.z);
 
     // No intersection, or box is behind ray
-    if (tNear > tFar || tFar < 0.0)
+    if (tNear > tFar || tFar < 0.0) {
+        discard;
         return false;
+    }
 
     tHit = max(tNear, 0.0);
     return true;
 }
 
-Box compute_bbox(sampler3D data_3d) {
-    vec3 size = ceil(textureSize(data_3d, 0) * 0.5) * 2.0; // NOTE(david): hack to make odd dimensions work
-    vec3 boxMin = -size * 0.5;
-    vec3 boxMax = size * 0.5;
-    return Box(boxMin, boxMax);
+Box compute_bbox(usampler3D data_3d) {
+    ivec3 size = textureSize(data_3d, 0);
+    return Box(vec3(0.0), vec3(size));
 }
 
 Ray transform_to_local_ray(Ray world_ray, mat4 model_inverse) {
