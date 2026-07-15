@@ -1,61 +1,16 @@
 from collections.abc import Sequence
-from dataclasses import dataclass, field
 
 import moderngl
-from moderngl import ComputeShader, Context, Program, Texture, Texture3D
+from moderngl import ComputeShader, Program, Texture, Texture3D
 from moderngl_window import geometry
 from moderngl_window.context.base import WindowConfig
-from moderngl_window.opengl.vao import VAO
 from moderngl_window.scene import Camera
 from pyglm import glm
 from pyglm.glm import mat4x4 as Mat4  # noqa: N812
 
 from .constants import GLOBAL_DEFINE, GLOBAL_OCCLUDER_DIMENSIONS
-from .model import Model
 from .rendering import GBuffer
-from .utils import Light, Object, Sun
-
-
-@dataclass(kw_only=True)
-class VoxelObject(Object):
-    model: Model
-    geometry: VAO = field(default_factory=lambda: geometry.cube(size=(1, 1, 1)))
-    _voxel_texture: Texture3D | None = None
-    _palette_texture: Texture | None = None
-
-    def __post_init__(self) -> None:
-        self.geometry = geometry.cube(size=self.model.opengl_dimensions)
-
-    def upload_to_gpu(self, ctx: Context) -> None:
-        self._voxel_texture = ctx.texture3d(
-            self.model.opengl_dimensions,
-            data=self.model.generate_voxel_data(),
-            components=1,
-            alignment=1,
-            dtype="u1",
-            create_mip_maps=True,
-        )
-        self._voxel_texture.label = f"tex3d_model_{self.model.name}"
-        self._voxel_texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
-        self._voxel_texture.repeat_x = False
-        self._voxel_texture.repeat_y = False
-        self._voxel_texture.repeat_z = False
-
-        palette = self.model.generate_palette_data()
-        self._palette_texture = ctx.texture((len(palette) // 3, 1), data=palette, components=3, dtype="f1")
-        self._palette_texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
-        self._palette_texture.repeat_x = False
-        self._palette_texture.repeat_y = False
-
-    @property
-    def voxel_texture(self) -> Texture3D:
-        assert self._voxel_texture
-        return self._voxel_texture
-
-    @property
-    def palette_texture(self) -> Texture:
-        assert self._palette_texture
-        return self._palette_texture
+from .utils import Light, Object, Sun, VoxelObject
 
 
 class GlobalOccluder:
