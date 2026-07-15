@@ -23,6 +23,7 @@ class GBuffer:
         # NOTE(david): internally uses GL_DEPTH_COMPONENT24 but we want GL_DEPTH_COMPONENT32F
         self.depth_texture = window.ctx.depth_texture(size=size)
         self.linear_depth = window.ctx.texture(size=size, components=1, dtype="f2")
+        # TODO(david): add material texture (roughness, metallic, emissive) RGB8 = nu1
 
         self.framebuffer = window.ctx.framebuffer(
             color_attachments=[
@@ -116,7 +117,15 @@ class PostProcessing:
         self.program.label = "prog_postprocessing"
         self.quad = geometry.quad_fs(normals=False, uvs=True)
 
-    def render(self, camera: Camera, suns: Sequence[Sun], albedo: Texture, irradiance: Texture, depth: Texture) -> None:
+    def render(  # noqa: PLR0913
+        self,
+        camera: Camera,
+        suns: Sequence[Sun],
+        albedo: Texture,
+        irradiance: Texture,
+        specular: Texture,
+        depth: Texture,
+    ) -> None:
         self.framebuffer.use()
 
         self.program["uInvProjection"].write(glm.inverse(camera.projection.matrix))
@@ -127,7 +136,8 @@ class PostProcessing:
             self.program["sun_direction"].write(glm.vec3(0, -1, 0))
         albedo.use(location=0)
         irradiance.use(location=1)
-        depth.use(location=2)
+        specular.use(location=2)
+        depth.use(location=3)
         self.quad.render(self.program)
 
 

@@ -46,7 +46,7 @@ vec3 size = textureSize(u_global_occluder, 0);
 Box bbox = Box(vec3(0.0), vec3(size));
 
 vec3 compute_ambient_lighting(vec3 pos, vec3 normal, Pcg32State rnd) {
-    vec3 ray_start = pos + normal * 0.01;
+    vec3 ray_start = pos + normal * 0.1;
 
     // Ambient Lighting
     vec3 ambient = vec3(0.0);
