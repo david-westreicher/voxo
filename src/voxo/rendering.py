@@ -8,7 +8,7 @@ from moderngl_window.scene import Camera
 from pyglm import glm
 
 from .constants import GLOBAL_DEFINE, GLOBAL_OCCLUDER_DIMENSIONS
-from .objects import Object
+from .objects import Object, Sun
 
 GL_RGB10_A2 = 0x8059
 GL_DEPTH_COMPONENT32F = 0x8CAC
@@ -117,11 +117,15 @@ class PostProcessing:
         self.program.label = "prog_postprocessing"
         self.quad = geometry.quad_fs(normals=False, uvs=True)
 
-    def render(self, camera: Camera, albedo: Texture, irradiance: Texture, depth: Texture) -> None:
+    def render(self, camera: Camera, suns: Sequence[Sun], albedo: Texture, irradiance: Texture, depth: Texture) -> None:
         self.framebuffer.use()
 
         self.program["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.program["uInvView"].write(glm.inverse(camera.matrix))
+        if suns:
+            self.program["sun_direction"].write(suns[0].direction)
+        else:
+            self.program["sun_direction"].write(glm.vec3(0, -1, 0))
         albedo.use(location=0)
         irradiance.use(location=1)
         depth.use(location=2)

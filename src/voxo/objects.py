@@ -70,7 +70,12 @@ class VoxelObject(Object):
     _palette_texture: Texture | None = None
 
     def __post_init__(self) -> None:
-        self.geometry = geometry.cube(size=self.model.opengl_dimensions)
+        self.geometry = geometry.cube(
+            size=self.model.opengl_dimensions,
+            center=(glm.vec3(self.model.opengl_dimensions) * 0.5).to_tuple(),
+        )
+        self._center_translation: Vec3 = cast("Vec3", glm.floor(glm.vec3(self.model.opengl_dimensions) * 0.5))
+        self._center_translation.y = 0
 
     def upload_to_gpu(self, ctx: Context) -> None:
         self._voxel_texture = ctx.texture3d(
@@ -102,3 +107,12 @@ class VoxelObject(Object):
     def palette_texture(self) -> Texture:
         assert self._palette_texture
         return self._palette_texture
+
+    @property
+    def transform(self) -> Mat4:
+        return cast(
+            "Mat4",
+            glm.translate(self.translation - self._center_translation)
+            @ glm.mat4_cast(self.rotation)
+            @ glm.scale(self.scale),
+        )

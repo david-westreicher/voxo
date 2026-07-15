@@ -47,7 +47,6 @@ class GlobalOccluder:
 
     def blit_object(self, voxel_object: VoxelObject) -> None:
         # TODO(david): only blit to affected bounding box
-        self.blitter["obj_dimensions"].write(glm.ivec3(voxel_object.model.opengl_dimensions))
         self.blitter["obj_transform_inv"].write(glm.inverse(voxel_object.transform))
         voxel_object.voxel_texture.use(location=0)
         self.occluder_texture.bind_to_image(1, read=False, write=True, level=0)
@@ -179,8 +178,8 @@ class VoxelAmbientLighting:
         self.framebuffer.use()
 
         self.voxel_ambient_lighting["frame_counter"].value = frame_counter
-        self.voxel_ambient_lighting["uProjection"].write(camera.projection.matrix)
-        self.voxel_ambient_lighting["uView"].write(camera.matrix)
+        # self.voxel_ambient_lighting["uProjection"].write(camera.projection.matrix)
+        # self.voxel_ambient_lighting["uView"].write(camera.matrix)
         self.voxel_ambient_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.voxel_ambient_lighting["uInvView"].write(glm.inverse(camera.matrix))
         gbuffer.smooth_normal_texture.use(location=0)
@@ -216,8 +215,8 @@ class VoxelDirectLighting:
     def _setup_uniforms(self, prog: Program, camera: Camera, frame_counter: int) -> None:
         # TODO(david): This could be a context managers job, setup only once per frame, not per object
         prog["frame_counter"].value = frame_counter
-        prog["uProjection"].write(camera.projection.matrix)
-        prog["uView"].write(camera.matrix)
+        # prog["uProjection"].write(camera.projection.matrix)
+        # prog["uView"].write(camera.matrix)
         prog["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         prog["uInvView"].write(glm.inverse(camera.matrix))
 

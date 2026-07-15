@@ -59,13 +59,14 @@ vec3 blur(vec2 uv) {
     }
     vec3 center_normal_decoded = decodeNormalRGB10A2(center_normal);
     vec3 center_pos = reconstructWorldPos(uv, center_depth);
+    vec2 local_texel_size = texel_size * max(0, 1.0 - pow(center_depth / MAX_DEPTH, 0.2));
 
     for (int y = -RADIUS; y <= RADIUS; ++y)
     {
         for (int x = -RADIUS; x <= RADIUS; ++x)
         {
             vec2 p = vec2(x, y);
-            vec2 sample_uv = uv + p * texel_size;
+            vec2 sample_uv = uv + p * local_texel_size;
             float sample_depth = texture(depth_texture, sample_uv).r;
             vec3 sample_pos = reconstructWorldPos(sample_uv, sample_depth);
             float depth_diff = abs(sample_depth - center_depth);
@@ -79,8 +80,7 @@ vec3 blur(vec2 uv) {
         }
     }
 
-    float mix_ratio = min(1.0, center_depth / MAX_DEPTH);
-    return mix(color / weight_sum, center_normal, mix_ratio);
+    return color / weight_sum;
 }
 
 void main() {
