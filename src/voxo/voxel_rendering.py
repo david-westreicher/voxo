@@ -93,19 +93,16 @@ class VoxelRenderer:
         self.program: Program = window.load_program("programs/gbuffer_create.glsl", defines=GLOBAL_DEFINE)
         self.program.label = "prog_gbuffer_create"
 
-    def render(
+    def render_objects(
         self,
         camera: Camera,
-        voxel_object: VoxelObject,
-        prev_model: Mat4,
+        voxel_objects: Sequence[VoxelObject],
+        prev_model_transforms: list[Mat4],
         prev_viewproj: Mat4,
         frame_counter: int,
     ) -> None:
-        ctx = voxel_object.voxel_texture.ctx
+        ctx = self.program.ctx
         self.program["m_proj"].write(camera.projection.matrix)
-        self.program["m_model"].write(voxel_object.transform)
-        self.program["m_model_inverse"].write(glm.inverse(voxel_object.transform))
-        self.program["m_prev_model"].write(prev_model)
         self.program["m_prev_viewproj"].write(prev_viewproj)
         self.program["m_camera"].write(camera.matrix)
         self.program["uInvProjection"].write(glm.inverse(camera.projection.matrix))
@@ -114,10 +111,20 @@ class VoxelRenderer:
         self.program["u_palette_data"].value = 1
         self.program["frame_counter"].value = frame_counter
 
-        voxel_object.voxel_texture.use(location=0)
-        voxel_object.palette_texture.use(location=1)
-        voxel_object.geometry.render(self.program)
-        ctx.enable(moderngl.DEPTH_TEST)
+        def cam_distance(enum_obj: tuple[int, VoxelObject]) -> float:
+            _, obj = enum_obj
+            return glm.distance2(camera.position, obj.translation)
+
+        ctx.enable_only(moderngl.DEPTH_TEST)
+        for i, voxel_object in sorted(enumerate(voxel_objects), key=cam_distance):
+            # TODO(david): use linear depth for Z-filter
+            prev_model = prev_model_transforms[i]
+            self.program["m_model"].write(voxel_object.transform)
+            self.program["m_model_inverse"].write(glm.inverse(voxel_object.transform))
+            self.program["m_prev_model"].write(prev_model)
+            voxel_object.voxel_texture.use(location=0)
+            voxel_object.palette_texture.use(location=1)
+            voxel_object.geometry.render(self.program)
 
 
 class VoxelLighting:

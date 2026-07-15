@@ -45,9 +45,8 @@ class GBuffer:
         self.framebuffer.label = f"framebuffer_gbuffer_{pingpong}"
 
     def start(self) -> None:
-        self.framebuffer.color_mask = (
-            [(False,) * 4] * (len(self.framebuffer.color_attachments) - 2) + [(True,) * 4] + [(False,) * 4]
-        )
+        # Clear depth and linear depth buffers
+        self.framebuffer.color_mask = [(val,) * 4 for val in [False, False, True, False]]
         self.framebuffer.clear(red=max(GLOBAL_OCCLUDER_DIMENSIONS) * 10.0, depth=1.0)
 
         ctx = self.framebuffer.ctx
