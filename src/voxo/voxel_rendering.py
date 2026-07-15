@@ -9,8 +9,8 @@ from pyglm import glm
 from pyglm.glm import mat4x4 as Mat4  # noqa: N812
 
 from .constants import GLOBAL_DEFINE, GLOBAL_OCCLUDER_DIMENSIONS
+from .objects import Light, Object, Sun, VoxelObject
 from .rendering import GBuffer
-from .utils import Light, Object, Sun, VoxelObject
 
 
 class GlobalOccluder:

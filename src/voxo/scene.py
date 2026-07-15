@@ -7,7 +7,7 @@ from pyglm import glm
 
 from .constants import CENTER, CENTER_GROUND
 from .model import parse_model
-from .utils import Light, Sun, VoxelObject
+from .objects import Light, Sun, VoxelObject
 
 
 class Scene:

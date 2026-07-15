@@ -8,7 +8,7 @@ from moderngl_window.scene import Camera
 from pyglm import glm
 
 from .constants import GLOBAL_DEFINE, GLOBAL_OCCLUDER_DIMENSIONS
-from .utils import Object
+from .objects import Object
 
 GL_RGB10_A2 = 0x8059
 GL_DEPTH_COMPONENT32F = 0x8CAC
