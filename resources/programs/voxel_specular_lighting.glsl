@@ -24,16 +24,22 @@ uniform mat4 uProjection;
 uniform mat4 uInvView;
 uniform mat4 uInvProjection;
 uniform vec3 sun_direction;
+uniform int frame_counter;
 
 layout(binding = 0) uniform sampler2D u_normal;
 layout(binding = 1) uniform sampler2D u_depth;
 layout(binding = 2) uniform sampler2D u_linear_depth;
 layout(binding = 3) uniform usampler3D u_global_occluder;
+layout(binding = 4) uniform sampler2DArray u_stbn_unitvec3;
 
 layout(location = 0) out vec3 out_specular;
 
 const int MAX_SPECULAR_SAMPLES = 1;
 const int MAX_SPECULAR_DISTANCE = 400;
+const float ROUGHNESS = 0.2;
+
+uint rnd_seed = uint(gl_FragCoord.x) + uint(gl_FragCoord.y) * 4097U + uint(frame_counter);
+int normal_rand_state = int(rnd_seed) % 64;
 float linear_depth = texture(u_linear_depth, uv).r;
 vec3 camera_pos = uInvView[3].xyz;
 vec3 size = textureSize(u_global_occluder, 0);
@@ -49,7 +55,10 @@ vec3 compute_specular_lighting(vec3 pos, vec3 normal) {
     // Specular Lighting
     vec3 specular = vec3(0.0);
     for (int spec_sample = 0; spec_sample < MAX_SPECULAR_SAMPLES; spec_sample += 1) {
-        Ray occ_ray = Ray(ray_start, reflect(normalize(pos - camera_pos), normal));
+        vec3 reflection_vec = reflect(normalize(pos - camera_pos), normal);
+        vec3 random_normal = generate_random_stbn_unitvec3(u_stbn_unitvec3, normal_rand_state) * ROUGHNESS * ROUGHNESS;
+        vec3 reflection_jittered = normalize(reflection_vec + random_normal);
+        Ray occ_ray = Ray(ray_start, reflection_jittered);
         Hit occ_hit = dda(occ_ray, MAX_SPECULAR_DISTANCE, u_global_occluder, bbox);
         if (!occ_hit.hit) {
             specular += skyColor(occ_ray.direction, sun_direction);

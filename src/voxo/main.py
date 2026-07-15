@@ -131,12 +131,12 @@ class VoxoWindow(CameraWindow):
         # Post processing
         with self.ctx.debug_scope("post processing"):
             self.post_processing.render(
-                self.camera,
-                self.scene.suns,
-                gbuffer.albedo_texture,
-                self.voxel_lighting.irradiance_texture,
-                self.voxel_lighting.specular_texture,
-                gbuffer.depth_texture,
+                camera=self.camera,
+                suns=self.scene.suns,
+                irradiance=self.voxel_lighting.irradiance_texture,
+                specular=self.voxel_lighting.specular_texture,
+                last_gbuffer=self.gbuffer.last,
+                current_gbuffer=self.gbuffer.current,
             )
 
         # Render framebuffer onto screen

@@ -168,7 +168,8 @@ class VoxelLighting:
             self.direct_lighting.render_light(camera, gbuffer, voxel_texture, light, frame_counter)
         ctx.disable(moderngl.BLEND)
 
-        self.specular_lighting.render(camera, suns[0].direction, gbuffer, voxel_texture)
+        sun_direction = suns[0].direction if suns else glm.vec3(0, -1, 0)
+        self.specular_lighting.render(camera, sun_direction, gbuffer, voxel_texture, frame_counter)
 
 
 class VoxelAmbientLighting:
@@ -276,11 +277,16 @@ class VoxelSpecularLighting:
         self.framebuffer = window.ctx.framebuffer(color_attachments=[specular_texture])
         self.framebuffer.label = "framebuffer_voxel_specular_lighting"
 
-        self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
         self.voxel_specular_lighting = window.load_program(
             "programs/voxel_specular_lighting.glsl", defines=GLOBAL_DEFINE
         )
         self.voxel_specular_lighting.label = "prog_voxel_specular_lighting"
+
+        self.stbnormals = window.load_texture_array("assets/stbn_unitvec3.png", layers=64)
+        self.stbnormals.label = "texarr_stbn_unitvec3"
+        self.stbnormals.filter = (moderngl.NEAREST, moderngl.NEAREST)
+
+        self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
 
     def render(
         self,
@@ -288,15 +294,18 @@ class VoxelSpecularLighting:
         sun_direction: glm.vec3,
         gbuffer: GBuffer,
         voxel_texture: Texture3D,
+        frame_counter: int,
     ) -> None:
         self.framebuffer.use()
 
         self.voxel_specular_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.voxel_specular_lighting["uInvView"].write(glm.inverse(camera.matrix))
         self.voxel_specular_lighting["sun_direction"].write(sun_direction)
+        self.voxel_specular_lighting["frame_counter"] = frame_counter
         gbuffer.smooth_normal_texture.use(location=0)
         gbuffer.depth_texture.use(location=1)
         gbuffer.linear_depth.use(location=2)
         voxel_texture.use(location=3)
+        self.stbnormals.use(location=4)
 
         self.quad_fs.render(self.voxel_specular_lighting)

@@ -48,3 +48,9 @@ vec3 generate_random_cosine_weighted_normal(vec3 normal, sampler2DArray stbn_nor
     vec3 normal_tangent = generate_random_normal(seed, stbn_normals);
     return tangentToWorld(normal, normal_tangent);
 }
+
+vec3 generate_random_stbn_unitvec3(sampler2DArray stbn_normals, inout int seed) {
+    seed = (seed + 1) % 64;
+    vec3 rnd_normal_coord = vec3(mod(gl_FragCoord.xy, 128) / 128.0, seed);
+    return normalize(texture(stbn_normals, rnd_normal_coord).rgb * 2.0 - 1.0);
+}
