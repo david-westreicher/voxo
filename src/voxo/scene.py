@@ -7,7 +7,7 @@ from pyglm import glm
 
 from .constants import CENTER, CENTER_GROUND
 from .model import parse_model
-from .utils import Light
+from .utils import Light, Sun
 from .voxel_rendering import VoxelObject
 
 
@@ -19,6 +19,7 @@ class Scene:
         self.light_1 = Light(10.0, glm.vec3(20.0, 18.0, 15.0) * 800.0)
         self.light_2 = Light(5.0, glm.vec3(20.0, 1.0, 1.0) * 500.0)
         self.light_3 = Light(5.0, glm.vec3(1.0, 1.0, 20.0) * 500.0)
+        self.sun = Sun()
 
         self.last_frame_transforms = [obj.transform for obj in self.voxel_objects]
         for voxel_object in self.voxel_objects:
@@ -31,6 +32,10 @@ class Scene:
     @cached_property
     def lights(self) -> Sequence[Light]:
         return [self.light_1, self.light_2, self.light_3]
+
+    @cached_property
+    def suns(self) -> Sequence[Sun]:
+        return [self.sun]
 
     def update(self, time: float) -> None:
         # TODO(david): occluder should align to +/-0.5 voxel

@@ -13,7 +13,7 @@ from pyglm.glm import mat4x4 as Mat4  # noqa: N812
 from .constants import GLOBAL_DEFINE, GLOBAL_OCCLUDER_DIMENSIONS
 from .model import Model
 from .rendering import GBuffer
-from .utils import Light, Object
+from .utils import Light, Object, Sun
 
 
 @dataclass(kw_only=True)
@@ -182,12 +182,13 @@ class VoxelLighting:
         )
         self.lighting_clearer.label = "framebuffer_voxel_lighting_clearer"
 
-    def render(
+    def render(  # noqa: PLR0913
         self,
         camera: Camera,
         gbuffer: GBuffer,
         voxel_texture: Texture3D,
         lights: Sequence[Light],
+        suns: Sequence[Sun],
         frame_counter: int,
     ) -> None:
         ctx = self.irradiance_texture.ctx
@@ -199,8 +200,10 @@ class VoxelLighting:
         ctx.enable_only(moderngl.BLEND)
         ctx.blend_equation = moderngl.FUNC_ADD  # type:ignore[assignment]
         ctx.blend_func = (moderngl.ONE, moderngl.ONE)
+        for sun in suns:
+            self.direct_lighting.render_sun(camera, gbuffer, voxel_texture, sun, frame_counter)
         for light in lights:
-            self.direct_lighting.render(camera, gbuffer, voxel_texture, light, frame_counter)
+            self.direct_lighting.render_light(camera, gbuffer, voxel_texture, light, frame_counter)
         ctx.disable(moderngl.BLEND)
 
 
@@ -240,14 +243,30 @@ class VoxelDirectLighting:
         self.framebuffer.label = "framebuffer_voxel_direct_lighting"
 
         self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
-        self.voxel_direct_lighting = window.load_program("programs/voxel_direct_lighting.glsl", defines=GLOBAL_DEFINE)
-        self.voxel_direct_lighting.label = "prog_voxel_direct_lighting"
+        self.voxel_direct_light = window.load_program(
+            "programs/voxel_direct_lighting.glsl",
+            defines=GLOBAL_DEFINE | {"IS_SUN": 0},
+        )
+        self.voxel_direct_light.label = "prog_voxel_direct_light"
+        self.voxel_direct_sun = window.load_program(
+            "programs/voxel_direct_lighting.glsl",
+            defines=GLOBAL_DEFINE | {"IS_SUN": 1},
+        )
+        self.voxel_direct_sun.label = "prog_voxel_direct_sun"
 
         self.random_vec2 = window.load_texture_array("assets/stbn_vec2.png", layers=64)
         self.random_vec2.label = "texarr_stbn_vec2"
         self.random_vec2.filter = (moderngl.NEAREST, moderngl.NEAREST)
 
-    def render(
+    def _setup_uniforms(self, prog: Program, camera: Camera, frame_counter: int) -> None:
+        # TODO(david): This could be a context managers job, setup only once per frame, not per object
+        prog["frame_counter"].value = frame_counter
+        prog["uProjection"].write(camera.projection.matrix)
+        prog["uView"].write(camera.matrix)
+        prog["uInvProjection"].write(glm.inverse(camera.projection.matrix))
+        prog["uInvView"].write(glm.inverse(camera.matrix))
+
+    def render_light(
         self,
         camera: Camera,
         gbuffer: GBuffer,
@@ -256,19 +275,37 @@ class VoxelDirectLighting:
         frame_counter: int,
     ) -> None:
         self.framebuffer.use()
+        self._setup_uniforms(self.voxel_direct_light, camera, frame_counter)
 
-        self.voxel_direct_lighting["frame_counter"].value = frame_counter
-        self.voxel_direct_lighting["uProjection"].write(camera.projection.matrix)
-        self.voxel_direct_lighting["uView"].write(camera.matrix)
-        self.voxel_direct_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))
-        self.voxel_direct_lighting["uInvView"].write(glm.inverse(camera.matrix))
-        self.voxel_direct_lighting["lightPos"].write(light.translation)
-        self.voxel_direct_lighting["lightRadius"] = light.radius
-        self.voxel_direct_lighting["lightColor"].write(light.color)
+        self.voxel_direct_light["lightPos"].write(light.translation)
+        self.voxel_direct_light["lightRadius"] = light.radius
+        self.voxel_direct_light["lightColor"].write(light.color)
         gbuffer.smooth_normal_texture.use(location=0)
         gbuffer.depth_texture.use(location=1)
         gbuffer.linear_depth.use(location=2)
         voxel_texture.use(location=3)
         self.random_vec2.use(location=4)
 
-        self.quad_fs.render(self.voxel_direct_lighting)
+        self.quad_fs.render(self.voxel_direct_light)
+
+    def render_sun(
+        self,
+        camera: Camera,
+        gbuffer: GBuffer,
+        voxel_texture: Texture3D,
+        sun: Sun,
+        frame_counter: int,
+    ) -> None:
+        self.framebuffer.use()
+        self._setup_uniforms(self.voxel_direct_sun, camera, frame_counter)
+
+        self.voxel_direct_sun["sunDirection"].write(sun.direction)
+        self.voxel_direct_sun["lightColor"].write(sun.color)
+        self.voxel_direct_sun["lightRadius"] = sun.radius
+        gbuffer.smooth_normal_texture.use(location=0)
+        gbuffer.depth_texture.use(location=1)
+        gbuffer.linear_depth.use(location=2)
+        voxel_texture.use(location=3)
+        self.random_vec2.use(location=4)
+
+        self.quad_fs.render(self.voxel_direct_sun)

@@ -123,6 +123,7 @@ class VoxoWindow(CameraWindow):
                 gbuffer,
                 self.global_occluder.occluder_texture,
                 self.scene.lights,
+                self.scene.suns,
                 self.frame_counter,
             )
 

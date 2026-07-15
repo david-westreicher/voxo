@@ -39,3 +39,20 @@ class Light(Object):
         return cast(
             "Mat4", glm.translate(self.translation) @ glm.mat4_cast(self.rotation) @ glm.scale(glm.vec3(self.radius))
         )
+
+
+@dataclass(init=False, kw_only=True)
+class Sun(Object):
+    color: glm.vec3
+    direction: glm.vec3
+    radius: float = 0.1
+
+    def __init__(self) -> None:
+        super().__init__(geometry.cube(size=(1.0, 10.0, 1.0)))
+        self.color = glm.vec3(1.0, 0.95, 0.85) * 2.5
+        self.direction = glm.normalize(glm.vec3(1.0, 1.0, 1.0))
+
+    @property
+    def transform(self) -> Mat4:
+        rot = glm.inverse(glm.quatLookAt(self.direction, glm.vec3(0, 1, 0)))
+        return cast("Mat4", glm.translate(self.translation) @ rot @ glm.scale(glm.vec3(self.radius)))

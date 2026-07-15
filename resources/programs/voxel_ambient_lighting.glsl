@@ -48,7 +48,7 @@ Box bbox = Box(vec3(0.0), vec3(size));
 vec3 compute_ambient_lighting(vec3 pos, vec3 normal, Pcg32State rnd) {
     vec3 ray_start = pos + normal * 0.01;
 
-    // Ambient Occlusion
+    // Ambient Lighting
     vec3 ambient = vec3(0.0);
     for (int occ_sample; occ_sample < MAX_OCC_SAMPLES; occ_sample += 1) {
         vec3 jitter_point = (pcg_random_vec3(rnd) - 0.5); // use stbn random vec3
@@ -58,6 +58,7 @@ vec3 compute_ambient_lighting(vec3 pos, vec3 normal, Pcg32State rnd) {
         if (!occ_hit.hit) {
             ambient += skyColor(occ_ray.direction, false);
         }
+        // TODO(david): We could take a screen space sample here from the last frame's irradiance texture, also use rejection
     }
     return ambient / MAX_OCC_SAMPLES;
 }
