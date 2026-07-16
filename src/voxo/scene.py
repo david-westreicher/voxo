@@ -12,13 +12,19 @@ from .objects import Light, Sun, VoxelObject
 
 class Scene:
     def __init__(self, ctx: Context) -> None:
-        self.truck = VoxelObject(model=parse_model(Path("./resources/models/duck.txt")))
+        self.corner_left = VoxelObject(model=parse_model(Path("./resources/models/corner.txt")))
+        self.corner_right = VoxelObject(model=parse_model(Path("./resources/models/corner.txt")))
+        self.corner_front = VoxelObject(model=parse_model(Path("./resources/models/corner.txt")))
+        self.plane_1 = VoxelObject(model=parse_model(Path("./resources/models/plane.txt")))
+        self.plane_2 = VoxelObject(model=parse_model(Path("./resources/models/plane.txt")))
+        self.plane_3 = VoxelObject(model=parse_model(Path("./resources/models/plane.txt")))
+        self.plane_4 = VoxelObject(model=parse_model(Path("./resources/models/plane.txt")))
+        self.truck_1 = VoxelObject(model=parse_model(Path("./resources/models/truck.txt")))
+        self.truck_2 = VoxelObject(model=parse_model(Path("./resources/models/truck.txt")))
         self.dwarf = VoxelObject(model=parse_model(Path("./resources/models/dwarf.txt")))
-        self.plane = VoxelObject(model=parse_model(Path("./resources/models/corner.txt")))
         self.light_1 = Light(10.0, glm.vec3(20.0, 18.0, 15.0) * 800.0)
-        self.light_2 = Light(0.1, glm.vec3(20.0, 1.0, 1.0) * 500.0)
+        self.light_2 = Light(5.0, glm.vec3(20.0, 1.0, 1.0) * 500.0)
         self.light_3 = Light(5.0, glm.vec3(1.0, 1.0, 20.0) * 500.0)
-        self.light_4 = Light(1.0, glm.vec3(0.0, 0.0, 0.0))
         self.sun = Sun()
 
         self.last_frame_transforms = [obj.transform for obj in self.voxel_objects]
@@ -27,11 +33,21 @@ class Scene:
 
     @cached_property
     def voxel_objects(self) -> Sequence[VoxelObject]:
-        return [self.dwarf, self.plane, self.truck]
+        return [
+            self.corner_left,
+            self.corner_right,
+            self.corner_front,
+            self.plane_1,
+            self.plane_2,
+            self.plane_3,
+            self.plane_4,
+            self.truck_1,
+            self.truck_2,
+        ]
 
     @cached_property
     def lights(self) -> Sequence[Light]:
-        return [self.light_2]  # , self.light_2, self.light_3]
+        return [self.light_2]
 
     @cached_property
     def suns(self) -> Sequence[Sun]:
@@ -39,16 +55,26 @@ class Scene:
 
     def update(self, time: float) -> None:
         # TODO(david): occluder should align to +/-0.5 voxel
-        self.plane.translation = glm.vec3(0, 0, 0)
-        self.truck.translation = glm.vec3(0, 1, time * 0.1) + glm.vec3(10, 0, 30)
-        self.dwarf.translation = glm.vec3(0, 1, 0) + glm.vec3(30, 0, 30)
+        self.corner_left.translation = glm.vec3(64, 0, 64)
+        self.corner_right.translation = glm.vec3(256 + 64, 0, 64)
+        self.corner_right.rotation = glm.angleAxis(glm.pi() * 1.5, glm.vec3(0, 1, 0))
+        self.corner_front.rotation = glm.angleAxis(glm.pi(), glm.vec3(0, 1, 0))
+        self.corner_front.translation = glm.vec3(256 + 64, 0, 128 + 64)
+        self.plane_1.translation = glm.vec3(64 + 1, 0, 64 + 127)
+        self.plane_2.translation = glm.vec3(64 + 128 - 1, 0, 64 + 127)
+        self.plane_3.translation = glm.vec3(64 + 1, 70, 64)
+        self.plane_4.translation = glm.vec3(64 + 128, 70, 64)
+
+        self.truck_1.translation = glm.vec3(95, 1, 60)
+        self.truck_2.translation = glm.vec3(128, 1, 200)
+        self.dwarf.translation = glm.vec3(0, 58.5, 0) + CENTER_GROUND
+        self.dwarf.rotate(-0.001, glm.vec3(0, 1, 0))
+
+        self.sun.direction = glm.normalize(glm.vec3(glm.sin(time), 1, glm.cos(time)))
         self.light_1.translation = glm.rotateY(glm.vec3(80, 0.0, 0), time) + CENTER
         self.light_1.radius = glm.sin(time) * 20.0
-        self.light_2.translation = glm.rotateY(glm.vec3(0, 0, 30), time * 2.0) + glm.vec3(30, 50, 30)
+        self.light_2.translation = glm.rotateY(glm.vec3(80, -20.0, 0), time * 3.0) + CENTER
         self.light_3.translation = glm.rotateY(glm.vec3(80, -20.0, 0), (time + glm.pi() * 0.5) * 3.0) + CENTER
-        self.sun.direction = glm.normalize(glm.vec3(glm.sin(time), 1, glm.cos(time)))
-        # self.truck.rotate(0.001, glm.vec3(0, 1, 0))
-        # self.dwarf.rotate(-0.001, glm.vec3(0, 1, 0))
 
     def update_lastframe_transforms(self) -> None:
         for i, voxel_object in enumerate(self.voxel_objects):

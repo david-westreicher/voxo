@@ -47,7 +47,6 @@ class GlobalOccluder:
 
     def blit_object(self, voxel_object: VoxelObject) -> None:
         # TODO(david): only blit to affected bounding box
-        self.blitter["obj_dimensions"].write(glm.ivec3(voxel_object.model.opengl_dimensions))
         self.blitter["obj_transform_inv"].write(glm.inverse(voxel_object.transform))
         voxel_object.voxel_texture.use(location=0)
         self.occluder_texture.bind_to_image(1, read=False, write=True, level=0)
@@ -94,19 +93,16 @@ class VoxelRenderer:
         self.program: Program = window.load_program("programs/gbuffer_create.glsl", defines=GLOBAL_DEFINE)
         self.program.label = "prog_gbuffer_create"
 
-    def render(
+    def render_objects(
         self,
         camera: Camera,
-        voxel_object: VoxelObject,
-        prev_model: Mat4,
+        voxel_objects: Sequence[VoxelObject],
+        prev_model_transforms: list[Mat4],
         prev_viewproj: Mat4,
         frame_counter: int,
     ) -> None:
-        ctx = voxel_object.voxel_texture.ctx
+        ctx = self.program.ctx
         self.program["m_proj"].write(camera.projection.matrix)
-        self.program["m_model"].write(voxel_object.transform)
-        self.program["m_model_inverse"].write(glm.inverse(voxel_object.transform))
-        self.program["m_prev_model"].write(prev_model)
         self.program["m_prev_viewproj"].write(prev_viewproj)
         self.program["m_camera"].write(camera.matrix)
         self.program["uInvProjection"].write(glm.inverse(camera.projection.matrix))
@@ -115,10 +111,20 @@ class VoxelRenderer:
         self.program["u_palette_data"].value = 1
         self.program["frame_counter"].value = frame_counter
 
-        voxel_object.voxel_texture.use(location=0)
-        voxel_object.palette_texture.use(location=1)
-        voxel_object.geometry.render(self.program)
-        ctx.enable(moderngl.DEPTH_TEST)
+        def cam_distance(enum_obj: tuple[int, VoxelObject]) -> float:
+            _, obj = enum_obj
+            return glm.distance2(camera.position, obj.translation)
+
+        ctx.enable_only(moderngl.DEPTH_TEST)
+        for i, voxel_object in sorted(enumerate(voxel_objects), key=cam_distance):
+            # TODO(david): use linear depth for Z-filter
+            prev_model = prev_model_transforms[i]
+            self.program["m_model"].write(voxel_object.transform)
+            self.program["m_model_inverse"].write(glm.inverse(voxel_object.transform))
+            self.program["m_prev_model"].write(prev_model)
+            voxel_object.voxel_texture.use(location=0)
+            voxel_object.palette_texture.use(location=1)
+            voxel_object.geometry.render(self.program)
 
 
 class VoxelLighting:
@@ -128,6 +134,7 @@ class VoxelLighting:
 
         self.ambient_lighting = VoxelAmbientLighting(window, self.irradiance_texture)
         self.direct_lighting = VoxelDirectLighting(window, self.irradiance_texture)
+        self.specular_lighting = VoxelSpecularLighting(window, self.specular_texture)
 
         self.lighting_clearer = window.ctx.framebuffer(
             color_attachments=[
@@ -161,6 +168,9 @@ class VoxelLighting:
             self.direct_lighting.render_light(camera, gbuffer, voxel_texture, light, frame_counter)
         ctx.disable(moderngl.BLEND)
 
+        sun_direction = suns[0].direction if suns else glm.vec3(0, -1, 0)
+        self.specular_lighting.render(camera, sun_direction, gbuffer, voxel_texture, frame_counter)
+
 
 class VoxelAmbientLighting:
     def __init__(self, window: WindowConfig, irradiance_texture: Texture) -> None:
@@ -179,8 +189,6 @@ class VoxelAmbientLighting:
         self.framebuffer.use()
 
         self.voxel_ambient_lighting["frame_counter"].value = frame_counter
-        self.voxel_ambient_lighting["uProjection"].write(camera.projection.matrix)
-        self.voxel_ambient_lighting["uView"].write(camera.matrix)
         self.voxel_ambient_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.voxel_ambient_lighting["uInvView"].write(glm.inverse(camera.matrix))
         gbuffer.smooth_normal_texture.use(location=0)
@@ -216,8 +224,6 @@ class VoxelDirectLighting:
     def _setup_uniforms(self, prog: Program, camera: Camera, frame_counter: int) -> None:
         # TODO(david): This could be a context managers job, setup only once per frame, not per object
         prog["frame_counter"].value = frame_counter
-        # prog["uProjection"].write(camera.projection.matrix)
-        # prog["uView"].write(camera.matrix)
         prog["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         prog["uInvView"].write(glm.inverse(camera.matrix))
 
@@ -264,3 +270,42 @@ class VoxelDirectLighting:
         self.random_vec2.use(location=4)
 
         self.quad_fs.render(self.voxel_direct_sun)
+
+
+class VoxelSpecularLighting:
+    def __init__(self, window: WindowConfig, specular_texture: Texture) -> None:
+        self.framebuffer = window.ctx.framebuffer(color_attachments=[specular_texture])
+        self.framebuffer.label = "framebuffer_voxel_specular_lighting"
+
+        self.voxel_specular_lighting = window.load_program(
+            "programs/voxel_specular_lighting.glsl", defines=GLOBAL_DEFINE
+        )
+        self.voxel_specular_lighting.label = "prog_voxel_specular_lighting"
+
+        self.stbnormals = window.load_texture_array("assets/stbn_unitvec3.png", layers=64)
+        self.stbnormals.label = "texarr_stbn_unitvec3"
+        self.stbnormals.filter = (moderngl.NEAREST, moderngl.NEAREST)
+
+        self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
+
+    def render(
+        self,
+        camera: Camera,
+        sun_direction: glm.vec3,
+        gbuffer: GBuffer,
+        voxel_texture: Texture3D,
+        frame_counter: int,
+    ) -> None:
+        self.framebuffer.use()
+
+        self.voxel_specular_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))
+        self.voxel_specular_lighting["uInvView"].write(glm.inverse(camera.matrix))
+        self.voxel_specular_lighting["sun_direction"].write(sun_direction)
+        self.voxel_specular_lighting["frame_counter"] = frame_counter
+        gbuffer.smooth_normal_texture.use(location=0)
+        gbuffer.depth_texture.use(location=1)
+        gbuffer.linear_depth.use(location=2)
+        voxel_texture.use(location=3)
+        self.stbnormals.use(location=4)
+
+        self.quad_fs.render(self.voxel_specular_lighting)

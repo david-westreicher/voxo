@@ -104,20 +104,21 @@ class VoxoWindow(CameraWindow):
         with self.ctx.debug_scope("fill gbuffer"):
             gbuffer = self.gbuffer.current
             gbuffer.start()
-            for i, voxel_object in enumerate(self.scene.voxel_objects):
-                self.voxel_renderer.render(
-                    self.camera,
-                    voxel_object,
-                    self.scene.last_frame_transforms[i],
-                    self.last_frame_projview,
-                    self.frame_counter,
-                )
+            self.voxel_renderer.render_objects(
+                self.camera,
+                self.scene.voxel_objects,
+                self.scene.last_frame_transforms,
+                self.last_frame_projview,
+                self.frame_counter,
+            )
             self.last_frame_projview = cast("Mat4", self.camera.projection.matrix @ self.camera.matrix)
             self.scene.update_lastframe_transforms()
 
+        with self.ctx.debug_scope("smooth normals"):
+            gbuffer.smooth_normals(self.camera)
+
         # Compute lighting
         with self.ctx.debug_scope("compute lighting"):
-            gbuffer.smooth_normals(self.camera)
             self.voxel_lighting.render(
                 self.camera,
                 gbuffer,
@@ -130,11 +131,12 @@ class VoxoWindow(CameraWindow):
         # Post processing
         with self.ctx.debug_scope("post processing"):
             self.post_processing.render(
-                self.camera,
-                self.scene.suns,
-                gbuffer.albedo_texture,
-                self.voxel_lighting.irradiance_texture,
-                gbuffer.depth_texture,
+                camera=self.camera,
+                suns=self.scene.suns,
+                irradiance=self.voxel_lighting.irradiance_texture,
+                specular=self.voxel_lighting.specular_texture,
+                last_gbuffer=self.gbuffer.last,
+                current_gbuffer=self.gbuffer.current,
             )
 
         # Render framebuffer onto screen

@@ -5,9 +5,9 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 layout(binding = 0) uniform usampler3D voxel_texture;
 layout(binding = 1, r8ui) uniform uimage3D occluder_texture;
 
-uniform ivec3 obj_dimensions;
 uniform mat4 obj_transform_inv;
 ivec3 occluder_size = imageSize(occluder_texture);
+ivec3 obj_dimensions = textureSize(voxel_texture, 0);
 
 void main()
 {

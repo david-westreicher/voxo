@@ -2,7 +2,7 @@ from collections.abc import Sequence
 
 import moderngl
 import moderngl_window
-from moderngl import Texture
+from moderngl import Framebuffer, Texture
 from moderngl_window import geometry
 from moderngl_window.scene import Camera
 from pyglm import glm
@@ -23,6 +23,7 @@ class GBuffer:
         # NOTE(david): internally uses GL_DEPTH_COMPONENT24 but we want GL_DEPTH_COMPONENT32F
         self.depth_texture = window.ctx.depth_texture(size=size)
         self.linear_depth = window.ctx.texture(size=size, components=1, dtype="f2")
+        # TODO(david): add material texture (roughness, metallic, emissive) RGB8 = nu1
 
         self.framebuffer = window.ctx.framebuffer(
             color_attachments=[
@@ -45,10 +46,8 @@ class GBuffer:
         self.framebuffer.label = f"framebuffer_gbuffer_{pingpong}"
 
     def start(self) -> None:
-        self.framebuffer.color_mask = (
-            [(False,) * 4] * (len(self.framebuffer.color_attachments) - 2) + [(True,) * 4] + [(False,) * 4]
-        )
-        self.framebuffer.color_mask = [(True,) * 4] * len(self.framebuffer.color_attachments)
+        # Clear depth and linear depth buffers
+        self.framebuffer.color_mask = [(val,) * 4 for val in [False, False, True, False]]
         self.framebuffer.clear(red=max(GLOBAL_OCCLUDER_DIMENSIONS) * 10.0, depth=1.0)
 
         ctx = self.framebuffer.ctx
@@ -114,22 +113,100 @@ class PostProcessing:
         self.framebuffer = window.ctx.framebuffer(color_attachments=[self.final_texture])
         self.framebuffer.label = "framebuffer_postprocessing"
 
-        self.program = window.load_program("programs/postprocessing.glsl", defines=GLOBAL_DEFINE)
-        self.program.label = "prog_postprocessing"
+        self.postprocessing_program = window.load_program("programs/postprocessing.glsl", defines=GLOBAL_DEFINE)
+        self.postprocessing_program.label = "prog_postprocessing"
         self.quad = geometry.quad_fs(normals=False, uvs=True)
 
-    def render(self, camera: Camera, suns: list[Sun], albedo: Texture, irradiance: Texture, depth: Texture) -> None:
+        self.irradiance_taa = TAA(window, size, "irradiance")
+        self.specular_taa = TAA(window, size, "irradiance")
+
+    def render(  # noqa: PLR0913
+        self,
+        camera: Camera,
+        suns: Sequence[Sun],
+        irradiance: Texture,
+        specular: Texture,
+        last_gbuffer: GBuffer,
+        current_gbuffer: GBuffer,
+    ) -> None:
+        self.irradiance_taa.render(
+            current_texture=irradiance,
+            motion_vectors=current_gbuffer.motion_vectors,
+            last_frame_depth=last_gbuffer.linear_depth,
+            last_frame_normals=last_gbuffer.smooth_normal_texture,
+            current_depth=current_gbuffer.linear_depth,
+            current_normals=current_gbuffer.smooth_normal_texture,
+        )
+        self.specular_taa.render(
+            current_texture=specular,
+            motion_vectors=current_gbuffer.motion_vectors,
+            last_frame_depth=last_gbuffer.linear_depth,
+            last_frame_normals=last_gbuffer.smooth_normal_texture,
+            current_depth=current_gbuffer.linear_depth,
+            current_normals=current_gbuffer.smooth_normal_texture,
+        )
+
         self.framebuffer.use()
 
-        self.program["uInvProjection"].write(glm.inverse(camera.projection.matrix))
-        self.program["uInvView"].write(glm.inverse(camera.matrix))
+        self.postprocessing_program["uInvProjection"].write(glm.inverse(camera.projection.matrix))
+        self.postprocessing_program["uInvView"].write(glm.inverse(camera.matrix))
         if suns:
-            self.program["sun_direction"].write(suns[0].direction)
+            self.postprocessing_program["sun_direction"].write(suns[0].direction)
         else:
-            self.program["sun_direction"].write(glm.vec3(0, -1, 0))
-        albedo.use(location=0)
-        irradiance.use(location=1)
-        depth.use(location=2)
+            self.postprocessing_program["sun_direction"].write(glm.vec3(0, -1, 0))
+        current_gbuffer.albedo_texture.use(location=0)
+        self.irradiance_taa.clean_texture.use(location=1)
+        self.specular_taa.clean_texture.use(location=2)
+        current_gbuffer.depth_texture.use(location=3)
+        self.quad.render(self.postprocessing_program)
+
+
+class TAA:
+    def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int], name: str) -> None:  # type: ignore[name-defined]
+        self.pingpong = 0
+        self.textures: list[Texture] = []
+        self.framebuffers: list[Framebuffer] = []
+        for i in range(2):
+            self.textures.append(window.ctx.texture(size=size, components=3, dtype="f2"))
+            self.textures[-1].label = f"tex2d_postprocessing_taa_{name}_{i}"
+            self.framebuffers.append(window.ctx.framebuffer(color_attachments=[self.textures[-1]]))
+            self.framebuffers[-1].label = f"framebuffer_taa_{name}_{i}"
+
+        self.program = window.load_program("programs/taa.glsl", defines=GLOBAL_DEFINE)
+        self.program.label = f"prog_postprocessing_taa_{name}"
+        self.quad = geometry.quad_fs(normals=False, uvs=True)
+
+    @property
+    def current_framebuffer(self) -> Framebuffer:
+        return self.framebuffers[self.pingpong]
+
+    @property
+    def last_texture(self) -> Texture:
+        return self.textures[1 - self.pingpong]
+
+    @property
+    def clean_texture(self) -> Texture:
+        return self.textures[self.pingpong]
+
+    def render(  # noqa: PLR0913
+        self,
+        current_texture: Texture,
+        motion_vectors: Texture,
+        last_frame_depth: Texture,
+        last_frame_normals: Texture,
+        current_depth: Texture,
+        current_normals: Texture,
+    ) -> None:
+        self.pingpong = 1 - self.pingpong
+        self.current_framebuffer.use()
+
+        self.last_texture.use(location=0)
+        current_texture.use(location=1)
+        motion_vectors.use(location=2)
+        last_frame_depth.use(location=3)
+        last_frame_normals.use(location=4)
+        current_depth.use(location=5)
+        current_normals.use(location=6)
         self.quad.render(self.program)
 
 

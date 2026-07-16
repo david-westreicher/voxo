@@ -32,7 +32,7 @@ uniform mat4 m_prev_model;
 uniform mat4 m_prev_viewproj;
 uniform int frame_counter;
 
-Box bbox = compute_bbox(u_voxel_data);
+Box bbox = Box(vec3(0.0), vec3(textureSize(u_voxel_data, 0)));
 vec3 size = bbox.max - bbox.min;
 int MAX_STEPS = int(max(size.x, max(size.y, size.z))) * 3;
 float inv_palette_size = 1.0 / (textureSize(u_palette_data, 0).r - 1.0);

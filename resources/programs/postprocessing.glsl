@@ -18,13 +18,14 @@ void main() {
 
 in vec2 uv;
 
+layout(binding = 0) uniform sampler2D u_albedo;
+layout(binding = 1) uniform sampler2D u_irradiance;
+layout(binding = 2) uniform sampler2D u_specular;
+layout(binding = 3) uniform sampler2D u_depth;
+
 uniform mat4 uInvView;
 uniform mat4 uInvProjection;
 uniform vec3 sun_direction;
-
-layout(binding = 0) uniform sampler2D u_albedo;
-layout(binding = 1) uniform sampler2D u_irradiance;
-layout(binding = 2) uniform sampler2D u_depth;
 
 layout(location = 0) out vec3 fragColor;
 
@@ -37,7 +38,8 @@ void main() {
     }
     vec3 albedo = texture(u_albedo, uv).rgb;
     vec3 irradiance = texture(u_irradiance, uv).rgb;
+    vec3 specular = texture(u_specular, uv).rgb;
 
-    fragColor = albedo * irradiance;
+    fragColor = albedo * irradiance + specular;
 }
 #endif

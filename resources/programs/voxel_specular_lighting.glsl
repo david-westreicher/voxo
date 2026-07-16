@@ -23,49 +23,52 @@ uniform mat4 uView;
 uniform mat4 uProjection;
 uniform mat4 uInvView;
 uniform mat4 uInvProjection;
+uniform vec3 sun_direction;
 uniform int frame_counter;
 
 layout(binding = 0) uniform sampler2D u_normal;
 layout(binding = 1) uniform sampler2D u_depth;
 layout(binding = 2) uniform sampler2D u_linear_depth;
 layout(binding = 3) uniform usampler3D u_global_occluder;
-layout(binding = 4) uniform sampler2DArray u_stbn_normals;
+layout(binding = 4) uniform sampler2DArray u_stbn_unitvec3;
 
-layout(location = 0) out vec3 out_irradiance;
+layout(location = 0) out vec3 out_specular;
 
-const int MAX_OCC_SAMPLES = 5;
-const int MAX_OCC_DISTANCE = 40;
+const int MAX_SPECULAR_SAMPLES = 1;
+const int MAX_SPECULAR_DISTANCE = 400;
+const float ROUGHNESS = 0.2;
 
 uint rnd_seed = uint(gl_FragCoord.x) + uint(gl_FragCoord.y) * 4097U + uint(frame_counter);
 int normal_rand_state = int(rnd_seed) % 64;
-
-mat4 projectionview = uProjection * uView;
 float linear_depth = texture(u_linear_depth, uv).r;
 vec3 camera_pos = uInvView[3].xyz;
 vec3 size = textureSize(u_global_occluder, 0);
 Box bbox = Box(vec3(0.0), vec3(size));
 
-vec3 compute_ambient_lighting(vec3 pos, vec3 normal, Pcg32State rnd) {
+vec3 reflect(vec3 I, vec3 N) {
+    return I - 2.0 * dot(N, I) * N;
+}
+
+vec3 compute_specular_lighting(vec3 pos, vec3 normal) {
     vec3 ray_start = pos + normal * 0.1;
 
-    // Ambient Lighting
-    vec3 ambient = vec3(0.0);
-    for (int occ_sample = 0; occ_sample < MAX_OCC_SAMPLES; occ_sample += 1) {
-        vec3 jitter_point = (pcg_random_vec3(rnd) - 0.5); // use stbn random vec3
-        vec3 jitter = jitter_point - normal * dot(jitter_point, normal);
-        Ray occ_ray = Ray(ray_start + jitter, generate_random_cosine_weighted_normal(normal, u_stbn_normals, normal_rand_state));
-        Hit occ_hit = dda(occ_ray, MAX_OCC_DISTANCE, u_global_occluder, bbox);
+    // Specular Lighting
+    vec3 specular = vec3(0.0);
+    for (int spec_sample = 0; spec_sample < MAX_SPECULAR_SAMPLES; spec_sample += 1) {
+        vec3 reflection_vec = reflect(normalize(pos - camera_pos), normal);
+        vec3 random_normal = generate_random_stbn_unitvec3(u_stbn_unitvec3, normal_rand_state) * ROUGHNESS * ROUGHNESS;
+        vec3 reflection_jittered = normalize(reflection_vec + random_normal);
+        Ray occ_ray = Ray(ray_start, reflection_jittered);
+        Hit occ_hit = dda(occ_ray, MAX_SPECULAR_DISTANCE, u_global_occluder, bbox);
         if (!occ_hit.hit) {
-            ambient += skyColor(occ_ray.direction, vec3(0, -1, 0));
+            specular += skyColor(occ_ray.direction, sun_direction);
         }
-        // TODO(david): We could take a screen space sample here from the last frame's irradiance texture, also use rejection
+        // TODO(david): We could take a screen space sample here from the last frame's final texture, also use rejection
     }
-    return ambient / MAX_OCC_SAMPLES;
+    return specular / MAX_SPECULAR_SAMPLES;
 }
 
 void main() {
-    Pcg32State rnd = pcg_srandom(rnd_seed);
-
     Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, 0, 0.0);
     float depth = texture(u_depth, uv).r;
     if (depth == 1.0) {
@@ -73,8 +76,8 @@ void main() {
     }
     vec3 normal = decodeNormalRGB10A2(texture(u_normal, uv).rgb);
     vec3 pos = camera_ray.origin + camera_ray.direction * linear_depth;
-    vec3 color = compute_ambient_lighting(pos, normal, rnd);
+    vec3 color = compute_specular_lighting(pos, normal);
 
-    out_irradiance = color;
+    out_specular = color;
 }
 #endif
