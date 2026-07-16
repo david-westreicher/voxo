@@ -65,7 +65,7 @@ vec3 compute_specular_lighting(vec3 pos, vec3 normal) {
         }
         // TODO(david): We could take a screen space sample here from the last frame's final texture, also use rejection
     }
-    return specular / MAX_SPECULAR_SAMPLES;
+    return specular * 0.1 / MAX_SPECULAR_SAMPLES;
 }
 
 void main() {

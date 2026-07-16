@@ -34,10 +34,11 @@ bool reject_history(float last_depth, float current_depth, vec3 last_normal, vec
     // Depth rejection (relative + absolute)
     float depth_diff = abs(last_depth - current_depth);
 
-    float depth_threshold = 3.0;
+    float depth_threshold = 1.0;
 
-    if (depth_diff > depth_threshold)
+    if (depth_diff > depth_threshold) {
         return true;
+    }
 
     // Normal rejection
     float normal_similarity = dot(last_normal, current_normal);
@@ -47,27 +48,51 @@ bool reject_history(float last_depth, float current_depth, vec3 last_normal, vec
 
     return false;
 }
+vec3 clamp_history_color(sampler2D current_color_tex, vec2 uv, vec3 prev_color) {
+    ivec2 size = textureSize(current_color_tex, 0);
+    ivec2 pixel = ivec2(uv * SCREEN_DIMENSIONS);
+
+    vec3 box_min = vec3(1e30);
+    vec3 box_max = vec3(-1e30);
+
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            ivec2 p = pixel + ivec2(x, y);
+            vec3 c = texelFetch(current_color_tex, p, 0).rgb;
+
+            box_min = min(box_min, c);
+            box_max = max(box_max, c);
+        }
+    }
+
+    return clamp(prev_color, box_min, box_max);
+}
 
 void main() {
-    vec2 last_frame_uv = uv + texture(tex_motion_vectors, uv).rg;
+    ivec2 last_frame_uv = ivec2(floor((uv + texture(tex_motion_vectors, uv).rg) * SCREEN_DIMENSIONS));
     vec3 current = texture(tex_current, uv).rgb;
 
-    bool outside = any(lessThanEqual(last_frame_uv, texel_size * 2.0)) || any(greaterThanEqual(last_frame_uv, vec2(1.0) - texel_size * 2.0));
+    bool outside = any(lessThanEqual(last_frame_uv, ivec2(5))) || any(greaterThanEqual(last_frame_uv, SCREEN_DIMENSIONS - ivec2(5)));
     if (outside) {
         clean_color = current;
         return;
     }
 
-    float last_depth = texture(tex_last_depth, last_frame_uv).r;
-    vec3 last_normal = decodeNormalRGB10A2(texture(tex_last_normals, last_frame_uv).rgb);
-    float current_depth = texture(tex_current_depth, last_frame_uv).r;
+    float last_depth = texelFetch(tex_last_depth, last_frame_uv, 0).r;
+    vec3 last_normal = decodeNormalRGB10A2(texelFetch(tex_last_normals, last_frame_uv, 0).rgb);
+    float current_depth = texture(tex_current_depth, uv).r;
     vec3 current_normal = decodeNormalRGB10A2(texture(tex_current_normals, uv).rgb);
 
+    if (current_depth > 100) {
+        clean_color = vec3(0);
+        return;
+    }
     if (reject_history(last_depth, current_depth, last_normal, current_normal)) {
         clean_color = current;
     } else {
-        vec3 last = texture(tex_last, last_frame_uv).rgb;
-        clean_color = mix(current, last, 0.9);
+        vec3 last = texelFetch(tex_last, last_frame_uv, 0).rgb;
+        vec3 last_clamped = clamp_history_color(tex_current, uv, last);
+        clean_color = mix(current, last_clamped, 0.9);
     }
 }
 #endif

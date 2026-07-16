@@ -144,7 +144,7 @@ class VoxoWindow(CameraWindow):
         self.gbuffer_debug.render(gbuffer, final_hdr_texture=self.post_processing.final_texture, debug=self.debug)
         self.wireframe_box.render(self.camera, [*self.scene.lights])
         if self.debug:
-            self.global_occluder.render_debug(self.camera)
+            # self.global_occluder.render_debug(self.camera)
             self.wireframe_box.render(self.camera, self.scene.voxel_objects)
             self.wireframe_box.render(self.camera, [*self.scene.lights, self.global_occluder.occluder_volume])
         self.gbuffer.swap()
