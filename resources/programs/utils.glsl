@@ -190,10 +190,3 @@ Ray transform_to_local_ray(Ray world_ray, mat4 model_inverse) {
     vec3 direction = normalize((model_inverse * vec4(world_ray.direction, 0.0)).xyz);
     return Ray(origin, direction);
 }
-
-vec3 decodeNormalRGB10A2(vec3 encoded)
-{
-    // map [0,1] -> [-1,1]
-    vec3 decoded = encoded * 2.0 - 1.0;
-    return normalize(decoded);
-}

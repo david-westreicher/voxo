@@ -65,7 +65,7 @@ vec3 compute_specular_lighting(vec3 pos, vec3 normal) {
         }
         // TODO(david): We could take a screen space sample here from the last frame's final texture, also use rejection
     }
-    return specular / MAX_SPECULAR_SAMPLES;
+    return specular * 0.1 / MAX_SPECULAR_SAMPLES;
 }
 
 void main() {
@@ -74,7 +74,7 @@ void main() {
     if (depth == 1.0) {
         return;
     }
-    vec3 normal = decodeNormalRGB10A2(texture(u_normal, uv).rgb);
+    vec3 normal = texture(u_normal, uv).rgb;
     vec3 pos = camera_ray.origin + camera_ray.direction * linear_depth;
     vec3 color = compute_specular_lighting(pos, normal);
 

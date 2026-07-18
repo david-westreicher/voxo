@@ -54,3 +54,21 @@ vec3 generate_random_stbn_unitvec3(sampler2DArray stbn_normals, inout int seed) 
     vec3 rnd_normal_coord = vec3(mod(gl_FragCoord.xy, 128) / 128.0, seed);
     return normalize(texture(stbn_normals, rnd_normal_coord).rgb * 2.0 - 1.0);
 }
+
+float generate_random_stbn_scalar(sampler2DArray stbn_scalar, inout int seed) {
+    seed = (seed + 1) % 64;
+    vec3 rnd_normal_coord = vec3(mod(gl_FragCoord.xy, 128) / 128.0, seed);
+    return texture(stbn_scalar, rnd_normal_coord).r;
+}
+
+vec2 generate_random_stbn_vec2(sampler2DArray stbn_vec2, inout int seed) {
+    seed = (seed + 1) % 64;
+    vec3 rnd_normal_coord = vec3(mod(gl_FragCoord.xy, 128) / 128.0, seed);
+    return texture(stbn_vec2, rnd_normal_coord).rg;
+}
+
+vec3 generate_random_stbn_vec3(sampler2DArray stbn_vec3, inout int seed) {
+    seed = (seed + 1) % 64;
+    vec3 rnd_normal_coord = vec3(mod(gl_FragCoord.xy, 128) / 128.0, seed);
+    return texture(stbn_vec3, rnd_normal_coord).rgb;
+}

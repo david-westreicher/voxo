@@ -61,7 +61,7 @@ class VoxoWindow(CameraWindow):
     window_size = SCREEN_DIMENSIONS
     title = "voxo"
     resource_dir = Path("resources").resolve()
-    vsync = False
+    vsync = True
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -135,8 +135,8 @@ class VoxoWindow(CameraWindow):
                 suns=self.scene.suns,
                 irradiance=self.voxel_lighting.irradiance_texture,
                 specular=self.voxel_lighting.specular_texture,
-                last_gbuffer=self.gbuffer.last,
                 current_gbuffer=self.gbuffer.current,
+                frame_counter=self.frame_counter,
             )
 
         # Render framebuffer onto screen
