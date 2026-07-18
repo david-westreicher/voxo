@@ -111,7 +111,6 @@ class VoxoWindow(CameraWindow):
                 self.last_frame_projview,
                 self.frame_counter,
             )
-            self.last_frame_projview = cast("Mat4", self.camera.projection.matrix @ self.camera.matrix)
             self.scene.update_lastframe_transforms()
 
         with self.ctx.debug_scope("smooth normals"):
@@ -132,10 +131,12 @@ class VoxoWindow(CameraWindow):
         with self.ctx.debug_scope("post processing"):
             self.post_processing.render(
                 camera=self.camera,
+                camera_moved=self.last_frame_projview != (self.camera.projection.matrix @ self.camera.matrix),
                 suns=self.scene.suns,
                 irradiance=self.voxel_lighting.irradiance_texture,
                 specular=self.voxel_lighting.specular_texture,
                 current_gbuffer=self.gbuffer.current,
+                last_gbuffer=self.gbuffer.last,
                 frame_counter=self.frame_counter,
             )
 
@@ -148,3 +149,4 @@ class VoxoWindow(CameraWindow):
             self.wireframe_box.render(self.camera, self.scene.voxel_objects)
             self.wireframe_box.render(self.camera, [*self.scene.lights, self.global_occluder.occluder_volume])
         self.gbuffer.swap()
+        self.last_frame_projview = cast("Mat4", self.camera.projection.matrix @ self.camera.matrix)

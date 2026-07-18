@@ -131,29 +131,38 @@ class PostProcessing:
         irradiance: Texture,
         specular: Texture,
         current_gbuffer: GBuffer,
+        last_gbuffer: GBuffer,
         frame_counter: int,
+        *,
+        camera_moved: bool,
     ) -> None:
         self.irradiance_taa.render(
             camera=camera,
+            camera_moved=camera_moved,
             current_texture=irradiance,
             motion_vectors=current_gbuffer.motion_vectors,
             current_depth=current_gbuffer.linear_depth,
+            last_depth=last_gbuffer.linear_depth,
             current_normals=current_gbuffer.normal_texture,
             frame_counter=frame_counter,
         )
         self.irradiance_taa_2.render(
             camera=camera,
+            camera_moved=camera_moved,
             current_texture=self.irradiance_taa.clean_texture,
             motion_vectors=current_gbuffer.motion_vectors,
             current_depth=current_gbuffer.linear_depth,
+            last_depth=last_gbuffer.linear_depth,
             current_normals=current_gbuffer.normal_texture,
             frame_counter=frame_counter + 1,
         )
         self.specular_taa.render(
             camera=camera,
+            camera_moved=camera_moved,
             current_texture=specular,
             motion_vectors=current_gbuffer.motion_vectors,
             current_depth=current_gbuffer.linear_depth,
+            last_depth=last_gbuffer.linear_depth,
             current_normals=current_gbuffer.normal_texture,
             frame_counter=frame_counter,
         )
@@ -207,14 +216,18 @@ class TAA:
         current_texture: Texture,
         motion_vectors: Texture,
         current_depth: Texture,
+        last_depth: Texture,
         current_normals: Texture,
         frame_counter: int,
+        *,
+        camera_moved: bool,
     ) -> None:
         self.pingpong = 1 - self.pingpong
         self.current_framebuffer.use()
         self.program["frame_counter"] = frame_counter
         self.program["u_inv_projection"].write(glm.inverse(camera.projection.matrix))
         self.program["u_inv_view"].write(glm.inverse(camera.matrix))
+        self.program["use_history_clamping"] = camera_moved
 
         self.last_texture.use(location=0)
         current_texture.use(location=1)
@@ -222,6 +235,7 @@ class TAA:
         current_depth.use(location=3)
         current_normals.use(location=4)
         self.stbn_scalar.use(location=5)
+        last_depth.use(location=6)
         self.quad.render(self.program)
 
 

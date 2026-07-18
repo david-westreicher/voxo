@@ -71,7 +71,7 @@ class Scene:
         self.dwarf.translation = glm.vec3(128, 1, 190)
 
         self.sun.direction = glm.normalize(glm.vec3(glm.sin(time), 1, glm.cos(time)))
-        self.light_1.translation = glm.vec3(140, 56, 180)
+        self.light_1.translation = glm.vec3(140, 56, 180) + glm.rotateY(glm.vec3(10, 0, 0), time)
 
     def update_lastframe_transforms(self) -> None:
         for i, voxel_object in enumerate(self.voxel_objects):

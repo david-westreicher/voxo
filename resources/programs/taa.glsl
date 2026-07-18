@@ -21,6 +21,7 @@ in vec2 uv;
 uniform mat4 u_inv_projection;
 uniform mat4 u_inv_view;
 uniform int frame_counter;
+uniform bool use_history_clamping;
 
 layout(binding = 0) uniform sampler2D tex_last;
 layout(binding = 1) uniform sampler2D tex_current;
@@ -28,6 +29,7 @@ layout(binding = 2) uniform sampler2D tex_motion_vectors;
 layout(binding = 3) uniform sampler2D tex_current_depth;
 layout(binding = 4) uniform sampler2D tex_current_normals;
 layout(binding = 5) uniform sampler2DArray stbn_scalar;
+layout(binding = 6) uniform sampler2D tex_last_depth;
 
 layout(location = 0) out vec3 clean_color;
 
@@ -95,17 +97,8 @@ void main() {
     }
     float depth_below = texture(tex_current_depth, uv + vec2(0, -texel_size.y)).r;
     vec2 uv_motion = uv;
-    /*
-                                                                                                    if (current_depth > depth_below) {
-                                                                                                        uv_motion.y -= texel_size.y;
-                                                                                                    }
-                                                                                                    */
     vec2 motion_vector = texture(tex_motion_vectors, uv_motion).rg;
     vec2 old_uv = uv + motion_vector;
-    if (any(lessThan(old_uv, vec2(0))) || any(greaterThan(old_uv, vec2(1)))) {
-        clean_color = current_color;
-        return;
-    }
     vec3 current_normal = texture(tex_current_normals, uv).rgb;
     Ray ray = compute_camera_ray(uv, u_inv_projection, u_inv_view, 0, 0.0);
     vec3 world_space_pos = ray.origin + ray.direction * current_depth;
@@ -115,8 +108,16 @@ void main() {
     vec3 maximum_color = current_color;
     vec3 resolved_color = spiral_sampling(uv, plane, current_normal, current_color, minimum_color, maximum_color);
     vec3 history_color = texture(tex_last, old_uv).rgb;
-    history_color = clamp(history_color, minimum_color, maximum_color);
-    float blend_factor = 0.9 - clamp(length(motion_vector) * 0.4, 0.0, 0.4);
+    float last_depth = texture(tex_last_depth, old_uv).r;
+    // reject history
+    if (any(lessThan(old_uv, vec2(0))) || any(greaterThan(old_uv, vec2(1))) || abs(last_depth - current_depth) > 3.0) {
+        clean_color = resolved_color;
+        return;
+    }
+    if (use_history_clamping) {
+        history_color = clamp(history_color, minimum_color, maximum_color);
+    }
+    float blend_factor = 0.7 - clamp(length(motion_vector) * 0.4, 0.0, 0.4);
     clean_color = mix(resolved_color, history_color, blend_factor);
 }
 #endif
