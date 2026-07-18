@@ -115,7 +115,7 @@ void main() {
     if (depth == 1.0) {
         return;
     }
-    vec3 normal = decodeNormalRGB10A2(texture(u_normal, uv).rgb);
+    vec3 normal = texture(u_normal, uv).rgb;
     vec3 pos = camera_ray.origin + camera_ray.direction * linear_depth;
     #if IS_SUN == 1
     vec3 color = compute_direct_sun(pos, normal, sunDirection);

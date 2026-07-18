@@ -61,7 +61,7 @@ class VoxoWindow(CameraWindow):
     window_size = SCREEN_DIMENSIONS
     title = "voxo"
     resource_dir = Path("resources").resolve()
-    vsync = False
+    vsync = True
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -69,7 +69,7 @@ class VoxoWindow(CameraWindow):
         self.time = 0.0
         self.frame_counter = 0
         self.debug = False
-        self.camera.position = glm.vec3(CENTER)  # type:ignore[assignment]
+        self.camera.position = glm.vec3(CENTER)
         self.scene = Scene(self.ctx)
 
         self.last_frame_projview: Mat4 = cast("Mat4", self.camera.projection.matrix @ self.camera.matrix)
@@ -114,9 +114,11 @@ class VoxoWindow(CameraWindow):
             self.last_frame_projview = cast("Mat4", self.camera.projection.matrix @ self.camera.matrix)
             self.scene.update_lastframe_transforms()
 
+        with self.ctx.debug_scope("smooth normals"):
+            gbuffer.smooth_normals(self.camera)
+
         # Compute lighting
         with self.ctx.debug_scope("compute lighting"):
-            gbuffer.smooth_normals(self.camera)
             self.voxel_lighting.render(
                 self.camera,
                 gbuffer,
@@ -129,11 +131,12 @@ class VoxoWindow(CameraWindow):
         # Post processing
         with self.ctx.debug_scope("post processing"):
             self.post_processing.render(
-                self.camera,
-                self.scene.suns,
-                gbuffer.albedo_texture,
-                self.voxel_lighting.irradiance_texture,
-                gbuffer.depth_texture,
+                camera=self.camera,
+                suns=self.scene.suns,
+                irradiance=self.voxel_lighting.irradiance_texture,
+                specular=self.voxel_lighting.specular_texture,
+                current_gbuffer=self.gbuffer.current,
+                frame_counter=self.frame_counter,
             )
 
         # Render framebuffer onto screen

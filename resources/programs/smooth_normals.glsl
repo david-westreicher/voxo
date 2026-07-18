@@ -43,12 +43,6 @@ vec3 reconstructWorldPos(vec2 uv, float depth)
     return camera_pos + world_dir * depth;
 }
 
-vec3 decodeNormalRGB10A2(vec3 encoded)
-{
-    // map [0,1] -> [-1,1]
-    return normalize(encoded * 2.0 - 1.0);
-}
-
 vec3 blur(vec2 uv) {
     vec3 color = vec3(0.0);
     float weight_sum = 0.0;
@@ -57,7 +51,7 @@ vec3 blur(vec2 uv) {
     if (center_depth >= MAX_DEPTH) {
         return center_normal;
     }
-    vec3 center_normal_decoded = decodeNormalRGB10A2(center_normal);
+    vec3 center_normal_decoded = center_normal;
     vec3 center_pos = reconstructWorldPos(uv, center_depth);
     vec2 local_texel_size = texel_size * max(0, 1.0 - pow(center_depth / MAX_DEPTH, 0.2));
 

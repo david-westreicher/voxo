@@ -26,12 +26,6 @@ const float gamma = 2.4;
 
 in vec2 uv;
 
-vec3 decodeNormalRGB10A2(vec3 encoded)
-{
-    // map [0,1] -> [-1,1]
-    return normalize(encoded * 2.0 - 1.0);
-}
-
 vec3 tonemap(vec3 hdr) {
     hdr *= exposure;
     vec3 ldr = hdr / (hdr + vec3(1.0));
@@ -75,11 +69,12 @@ void main() {
         }
         else
         {
-            vec3 normal = decodeNormalRGB10A2(texture(u_normal, local).rgb);
+            vec3 normal = texture(u_normal, local).rgb;
             color = normal * 0.5 + 0.5;
         }
     }
     if (full) {
+        fragColor = vec4(texture(u_lighting, uv).rgb, 1.0);
         fragColor = vec4(tonemap(texture(u_lighting, uv).rgb), 1.0);
     } else {
         fragColor = vec4(color, 1.0);

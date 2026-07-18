@@ -130,10 +130,13 @@ class VoxelRenderer:
 class VoxelLighting:
     def __init__(self, window: WindowConfig, size: tuple[int, int]) -> None:
         self.irradiance_texture = window.ctx.texture(size=size, components=3, dtype="f2")
+        self.irradiance_texture.label = "tex_irradiance_texture"
         self.specular_texture = window.ctx.texture(size=size, components=3, dtype="f2")
+        self.specular_texture.label = "tex_specular_texture"
 
         self.ambient_lighting = VoxelAmbientLighting(window, self.irradiance_texture)
         self.direct_lighting = VoxelDirectLighting(window, self.irradiance_texture)
+        self.specular_lighting = VoxelSpecularLighting(window, self.specular_texture)
 
         self.lighting_clearer = window.ctx.framebuffer(
             color_attachments=[
@@ -167,6 +170,9 @@ class VoxelLighting:
             self.direct_lighting.render_light(camera, gbuffer, voxel_texture, light, frame_counter)
         ctx.disable(moderngl.BLEND)
 
+        sun_direction = suns[0].direction if suns else glm.vec3(0, -1, 0)
+        self.specular_lighting.render(camera, sun_direction, gbuffer, voxel_texture, frame_counter)
+
 
 class VoxelAmbientLighting:
     def __init__(self, window: WindowConfig, irradiance_texture: Texture) -> None:
@@ -181,19 +187,22 @@ class VoxelAmbientLighting:
         self.stbnormals.label = "texarr_stbn_cosine_normals"
         self.stbnormals.filter = (moderngl.NEAREST, moderngl.NEAREST)
 
+        self.stbn_vec3 = window.load_texture_array("assets/stbn_vec3.png", layers=64)
+        self.stbn_vec3.label = "texarr_stbn_vec3"
+        self.stbn_vec3.filter = (moderngl.NEAREST, moderngl.NEAREST)
+
     def render(self, camera: Camera, gbuffer: GBuffer, voxel_texture: Texture3D, frame_counter: int) -> None:
         self.framebuffer.use()
 
         self.voxel_ambient_lighting["frame_counter"].value = frame_counter
-        # self.voxel_ambient_lighting["uProjection"].write(camera.projection.matrix)
-        # self.voxel_ambient_lighting["uView"].write(camera.matrix)
         self.voxel_ambient_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.voxel_ambient_lighting["uInvView"].write(glm.inverse(camera.matrix))
-        gbuffer.smooth_normal_texture.use(location=0)
+        gbuffer.normal_texture.use(location=0)
         gbuffer.depth_texture.use(location=1)
         gbuffer.linear_depth.use(location=2)
         voxel_texture.use(location=3)
         self.stbnormals.use(location=4)
+        self.stbn_vec3.use(location=5)
 
         self.quad_fs.render(self.voxel_ambient_lighting)
 
@@ -222,8 +231,6 @@ class VoxelDirectLighting:
     def _setup_uniforms(self, prog: Program, camera: Camera, frame_counter: int) -> None:
         # TODO(david): This could be a context managers job, setup only once per frame, not per object
         prog["frame_counter"].value = frame_counter
-        # prog["uProjection"].write(camera.projection.matrix)
-        # prog["uView"].write(camera.matrix)
         prog["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         prog["uInvView"].write(glm.inverse(camera.matrix))
 
@@ -270,3 +277,42 @@ class VoxelDirectLighting:
         self.random_vec2.use(location=4)
 
         self.quad_fs.render(self.voxel_direct_sun)
+
+
+class VoxelSpecularLighting:
+    def __init__(self, window: WindowConfig, specular_texture: Texture) -> None:
+        self.framebuffer = window.ctx.framebuffer(color_attachments=[specular_texture])
+        self.framebuffer.label = "framebuffer_voxel_specular_lighting"
+
+        self.voxel_specular_lighting = window.load_program(
+            "programs/voxel_specular_lighting.glsl", defines=GLOBAL_DEFINE
+        )
+        self.voxel_specular_lighting.label = "prog_voxel_specular_lighting"
+
+        self.stbnormals = window.load_texture_array("assets/stbn_unitvec3.png", layers=64)
+        self.stbnormals.label = "texarr_stbn_unitvec3"
+        self.stbnormals.filter = (moderngl.NEAREST, moderngl.NEAREST)
+
+        self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
+
+    def render(
+        self,
+        camera: Camera,
+        sun_direction: glm.vec3,
+        gbuffer: GBuffer,
+        voxel_texture: Texture3D,
+        frame_counter: int,
+    ) -> None:
+        self.framebuffer.use()
+
+        self.voxel_specular_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))
+        self.voxel_specular_lighting["uInvView"].write(glm.inverse(camera.matrix))
+        self.voxel_specular_lighting["sun_direction"].write(sun_direction)
+        self.voxel_specular_lighting["frame_counter"] = frame_counter
+        gbuffer.smooth_normal_texture.use(location=0)
+        gbuffer.depth_texture.use(location=1)
+        gbuffer.linear_depth.use(location=2)
+        voxel_texture.use(location=3)
+        self.stbnormals.use(location=4)
+
+        self.quad_fs.render(self.voxel_specular_lighting)
