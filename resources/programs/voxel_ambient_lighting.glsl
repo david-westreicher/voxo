@@ -53,7 +53,7 @@ vec3 compute_ambient_lighting(vec3 pos, vec3 normal, Pcg32State rnd) {
     // Ambient Lighting
     vec3 ambient = vec3(0.0);
     for (int occ_sample = 0; occ_sample < MAX_OCC_SAMPLES; occ_sample += 1) {
-        vec3 jitter_point = (generate_random_stbn_vec3(u_stbn_vec3, jitter_pos_state) - 0.5) * 2.0;
+        vec3 jitter_point = (generate_random_stbn_vec3(u_stbn_vec3, jitter_pos_state) - 0.5);
         vec3 jitter = jitter_point - normal * dot(jitter_point, normal);
         Ray occ_ray = Ray(ray_start + jitter, generate_random_cosine_weighted_normal(normal, u_stbn_normals, normal_rand_state));
         Hit occ_hit = dda(occ_ray, MAX_OCC_DISTANCE, u_global_occluder, bbox);

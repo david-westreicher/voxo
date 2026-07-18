@@ -5,7 +5,6 @@ from pathlib import Path
 from moderngl import Context
 from pyglm import glm
 
-from .constants import CENTER
 from .model import parse_model
 from .objects import Light, Sun, VoxelObject
 

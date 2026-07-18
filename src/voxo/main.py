@@ -69,7 +69,7 @@ class VoxoWindow(CameraWindow):
         self.time = 0.0
         self.frame_counter = 0
         self.debug = False
-        self.camera.position = glm.vec3(CENTER)  # type:ignore[assignment]
+        self.camera.position = glm.vec3(CENTER)
         self.scene = Scene(self.ctx)
 
         self.last_frame_projview: Mat4 = cast("Mat4", self.camera.projection.matrix @ self.camera.matrix)
