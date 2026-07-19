@@ -431,7 +431,7 @@ class DebugView(ModernglWindowRenderer):
         self.settings = SettingsViewer()
 
         io = imgui.get_io()
-        io.config_flags |= imgui.ConfigFlags_.nav_enable_keyboard
+        io.config_flags |= imgui.ConfigFlags_.nav_enable_keyboard  # type:ignore[operator]
 
     @property
     def is_frame_counter_stopped(self) -> bool:
