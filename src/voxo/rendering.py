@@ -1,8 +1,9 @@
 from collections.abc import Sequence
+from functools import cached_property
 
 import moderngl
 import moderngl_window
-from moderngl import Framebuffer, Texture
+from moderngl import Framebuffer, Program, Texture
 from moderngl_window import geometry
 from moderngl_window.scene import Camera
 from pyglm import glm
@@ -65,6 +66,20 @@ class GBuffer:
     def smooth_normals(self, camera: Camera) -> None:
         self.normal_smoother.render(self.normal_texture, self.linear_depth, camera)
 
+    @cached_property
+    def textures(self) -> list[Texture]:
+        return [
+            self.albedo_texture,
+            self.normal_texture,
+            self.smooth_normal_texture,
+            self.depth_texture,
+            self.linear_depth,
+        ]
+
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [*self.normal_smoother.shaders]
+
 
 class SmoothNormals:
     def __init__(self, window: moderngl_window.WindowConfig, output_texture: Texture) -> None:  # type: ignore[name-defined]
@@ -86,6 +101,10 @@ class SmoothNormals:
         input_texture.use(location=0)
         depth_texture.use(location=1)
         self.quad.render(self.program)
+
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [self.program]
 
 
 class GBufferDebug:
@@ -131,29 +150,38 @@ class PostProcessing:
         irradiance: Texture,
         specular: Texture,
         current_gbuffer: GBuffer,
+        last_gbuffer: GBuffer,
         frame_counter: int,
+        *,
+        camera_moved: bool,
     ) -> None:
         self.irradiance_taa.render(
             camera=camera,
+            camera_moved=camera_moved,
             current_texture=irradiance,
             motion_vectors=current_gbuffer.motion_vectors,
             current_depth=current_gbuffer.linear_depth,
+            last_depth=last_gbuffer.linear_depth,
             current_normals=current_gbuffer.normal_texture,
             frame_counter=frame_counter,
         )
         self.irradiance_taa_2.render(
             camera=camera,
+            camera_moved=camera_moved,
             current_texture=self.irradiance_taa.clean_texture,
             motion_vectors=current_gbuffer.motion_vectors,
             current_depth=current_gbuffer.linear_depth,
+            last_depth=last_gbuffer.linear_depth,
             current_normals=current_gbuffer.normal_texture,
             frame_counter=frame_counter + 1,
         )
         self.specular_taa.render(
             camera=camera,
+            camera_moved=camera_moved,
             current_texture=specular,
             motion_vectors=current_gbuffer.motion_vectors,
             current_depth=current_gbuffer.linear_depth,
+            last_depth=last_gbuffer.linear_depth,
             current_normals=current_gbuffer.normal_texture,
             frame_counter=frame_counter,
         )
@@ -162,7 +190,7 @@ class PostProcessing:
 
         self.postprocessing_program["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.postprocessing_program["uInvView"].write(glm.inverse(camera.matrix))
-        if suns:
+        if suns and suns[0].visible:
             self.postprocessing_program["sun_direction"].write(suns[0].direction)
         else:
             self.postprocessing_program["sun_direction"].write(glm.vec3(0, -1, 0))
@@ -171,6 +199,24 @@ class PostProcessing:
         self.specular_taa.clean_texture.use(location=2)
         current_gbuffer.depth_texture.use(location=3)
         self.quad.render(self.postprocessing_program)
+
+    @cached_property
+    def textures(self) -> list[Texture]:
+        return [
+            self.final_texture,
+            *self.irradiance_taa.textures,
+            *self.irradiance_taa_2.textures,
+            *self.specular_taa.textures,
+        ]
+
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [
+            self.postprocessing_program,
+            *self.irradiance_taa.shaders,
+            *self.irradiance_taa_2.shaders,
+            *self.specular_taa.shaders,
+        ]
 
 
 class TAA:
@@ -207,14 +253,18 @@ class TAA:
         current_texture: Texture,
         motion_vectors: Texture,
         current_depth: Texture,
+        last_depth: Texture,
         current_normals: Texture,
         frame_counter: int,
+        *,
+        camera_moved: bool,
     ) -> None:
         self.pingpong = 1 - self.pingpong
         self.current_framebuffer.use()
         self.program["frame_counter"] = frame_counter
         self.program["u_inv_projection"].write(glm.inverse(camera.projection.matrix))
         self.program["u_inv_view"].write(glm.inverse(camera.matrix))
+        self.program["use_history_clamping"] = camera_moved
 
         self.last_texture.use(location=0)
         current_texture.use(location=1)
@@ -222,7 +272,12 @@ class TAA:
         current_depth.use(location=3)
         current_normals.use(location=4)
         self.stbn_scalar.use(location=5)
+        last_depth.use(location=6)
         self.quad.render(self.program)
+
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [self.program]
 
 
 class WireFrameRenderer:
@@ -261,6 +316,14 @@ class GBufferPingPong:
     @property
     def last(self) -> GBuffer:
         return self.buffers[1 - self.pingpong]
+
+    @cached_property
+    def textures(self) -> list[Texture]:
+        return [tex for buffer in self.buffers for tex in buffer.textures]
+
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [shader for buffer in self.buffers for shader in buffer.shaders]
 
     def swap(self) -> None:
         self.pingpong = 1 - self.pingpong

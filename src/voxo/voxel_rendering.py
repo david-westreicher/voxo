@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from functools import cached_property
 
 import moderngl
 from moderngl import ComputeShader, Program, Texture, Texture3D
@@ -117,6 +118,8 @@ class VoxelRenderer:
 
         ctx.enable_only(moderngl.DEPTH_TEST)
         for i, voxel_object in sorted(enumerate(voxel_objects), key=cam_distance):
+            if not voxel_object.visible:
+                continue
             # TODO(david): use linear depth for Z-filter
             prev_model = prev_model_transforms[i]
             self.program["m_model"].write(voxel_object.transform)
@@ -125,6 +128,10 @@ class VoxelRenderer:
             voxel_object.voxel_texture.use(location=0)
             voxel_object.palette_texture.use(location=1)
             voxel_object.geometry.render(self.program)
+
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [self.program]
 
 
 class VoxelLighting:
@@ -165,13 +172,25 @@ class VoxelLighting:
         ctx.blend_equation = moderngl.FUNC_ADD  # type:ignore[assignment]
         ctx.blend_func = (moderngl.ONE, moderngl.ONE)
         for sun in suns:
+            if not sun.visible:
+                continue
             self.direct_lighting.render_sun(camera, gbuffer, voxel_texture, sun, frame_counter)
         for light in lights:
+            if not light.visible:
+                continue
             self.direct_lighting.render_light(camera, gbuffer, voxel_texture, light, frame_counter)
         ctx.disable(moderngl.BLEND)
 
-        sun_direction = suns[0].direction if suns else glm.vec3(0, -1, 0)
+        sun_direction = suns[0].direction if suns and suns[0].visible else glm.vec3(0, -1, 0)
         self.specular_lighting.render(camera, sun_direction, gbuffer, voxel_texture, frame_counter)
+
+    @cached_property
+    def textures(self) -> list[Texture]:
+        return [self.irradiance_texture, self.specular_texture]
+
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [*self.ambient_lighting.shaders, *self.direct_lighting.shaders, *self.specular_lighting.shaders]
 
 
 class VoxelAmbientLighting:
@@ -182,6 +201,7 @@ class VoxelAmbientLighting:
         self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
         self.voxel_ambient_lighting = window.load_program("programs/voxel_ambient_lighting.glsl", defines=GLOBAL_DEFINE)
         self.voxel_ambient_lighting.label = "prog_voxel_ambient_lighting"
+        self.voxel_ambient_lighting["max_occ_samples"] = 2
 
         self.stbnormals = window.load_texture_array("assets/stbn_cosine_normals.png", layers=64)
         self.stbnormals.label = "texarr_stbn_cosine_normals"
@@ -205,6 +225,10 @@ class VoxelAmbientLighting:
         self.stbn_vec3.use(location=5)
 
         self.quad_fs.render(self.voxel_ambient_lighting)
+
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [self.voxel_ambient_lighting]
 
 
 class VoxelDirectLighting:
@@ -247,7 +271,7 @@ class VoxelDirectLighting:
 
         self.voxel_direct_light["lightPos"].write(light.translation)
         self.voxel_direct_light["lightRadius"] = light.radius
-        self.voxel_direct_light["lightColor"].write(light.color)
+        self.voxel_direct_light["lightColor"].write(light.color * light.intensity)
         gbuffer.smooth_normal_texture.use(location=0)
         gbuffer.depth_texture.use(location=1)
         gbuffer.linear_depth.use(location=2)
@@ -277,6 +301,10 @@ class VoxelDirectLighting:
         self.random_vec2.use(location=4)
 
         self.quad_fs.render(self.voxel_direct_sun)
+
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [self.voxel_direct_light, self.voxel_direct_sun]
 
 
 class VoxelSpecularLighting:
@@ -316,3 +344,7 @@ class VoxelSpecularLighting:
         self.stbnormals.use(location=4)
 
         self.quad_fs.render(self.voxel_specular_lighting)
+
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [self.voxel_specular_lighting]

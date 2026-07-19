@@ -24,6 +24,7 @@ uniform mat4 uProjection;
 uniform mat4 uInvView;
 uniform mat4 uInvProjection;
 uniform int frame_counter;
+uniform int max_occ_samples = 2;
 
 layout(binding = 0) uniform sampler2D u_normal;
 layout(binding = 1) uniform sampler2D u_depth;
@@ -34,7 +35,6 @@ layout(binding = 5) uniform sampler2DArray u_stbn_vec3;
 
 layout(location = 0) out vec3 out_irradiance;
 
-const int MAX_OCC_SAMPLES = 3;
 const int MAX_OCC_DISTANCE = 300;
 
 uint rnd_seed = uint(gl_FragCoord.x) + uint(gl_FragCoord.y) * 4097U + uint(frame_counter);
@@ -52,7 +52,7 @@ vec3 compute_ambient_lighting(vec3 pos, vec3 normal, Pcg32State rnd) {
 
     // Ambient Lighting
     vec3 ambient = vec3(0.0);
-    for (int occ_sample = 0; occ_sample < MAX_OCC_SAMPLES; occ_sample += 1) {
+    for (int occ_sample = 0; occ_sample < max_occ_samples; occ_sample += 1) {
         vec3 jitter_point = (generate_random_stbn_vec3(u_stbn_vec3, jitter_pos_state) - 0.5);
         vec3 jitter = jitter_point - normal * dot(jitter_point, normal);
         Ray occ_ray = Ray(ray_start + jitter, generate_random_cosine_weighted_normal(normal, u_stbn_normals, normal_rand_state));
@@ -62,7 +62,7 @@ vec3 compute_ambient_lighting(vec3 pos, vec3 normal, Pcg32State rnd) {
         }
         // TODO(david): We could take a screen space sample here from the last frame's irradiance texture, also use rejection
     }
-    return ambient / MAX_OCC_SAMPLES;
+    return ambient / max_occ_samples;
 }
 
 void main() {
