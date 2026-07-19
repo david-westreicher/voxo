@@ -258,7 +258,7 @@ class VoxelDirectLighting:
 
         self.voxel_direct_light["lightPos"].write(light.translation)
         self.voxel_direct_light["lightRadius"] = light.radius
-        self.voxel_direct_light["lightColor"].write(light.color)
+        self.voxel_direct_light["lightColor"].write(light.color * light.intensity)
         gbuffer.smooth_normal_texture.use(location=0)
         gbuffer.depth_texture.use(location=1)
         gbuffer.linear_depth.use(location=2)

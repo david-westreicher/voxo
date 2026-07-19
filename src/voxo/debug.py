@@ -14,7 +14,7 @@ from moderngl_window.context.base.window import WindowConfig
 from moderngl_window.integrations.imgui_bundle import ModernglWindowRenderer
 from pyglm import glm
 
-from voxo.objects import Object, VoxelObject
+from voxo.objects import Light, Object, VoxelObject
 
 from .model import parse_model
 from .scene import Scene
@@ -277,6 +277,8 @@ class ObjectsViewer:
                         clicked, _ = imgui.selectable(light.name, self.selected_object_state == ("Lights", i))
                         if clicked:
                             self.selected_object_state = ("Lights", i)
+                    if imgui.button("Add Light", size=(0, 0)):
+                        self.scene.add_light(Light())
                 if imgui.collapsing_header(f"Suns ({len(self.scene.suns)})"):
                     for i, sun in enumerate(self.scene.suns):
                         clicked, _ = imgui.selectable(sun.name, self.selected_object_state == ("Suns", i))
@@ -298,16 +300,40 @@ class ObjectsViewer:
                     )
                     self.selected_object.translation = glm.vec3(new_trans)
 
-                    imgui.separator_text("Rotation")
                     r = self.selected_object.rotation
                     euler = cast("glm.vec3", glm.degrees(glm.eulerAngles(r)))
                     _, new_rot = imgui.drag_float3("rotation", euler.to_list(), v_speed=45, v_min=-360, v_max=360)
                     self.selected_object.rotation = glm.quat(glm.radians(glm.vec3(new_rot)))
 
-                    imgui.separator_text("Scale")
                     s = self.selected_object.scale
                     _, new_scale = imgui.drag_float3("scale", s.to_list(), v_speed=0.1, v_min=-10, v_max=10)
                     self.selected_object.scale = glm.vec3(new_scale)
+
+                    if isinstance(self.selected_object, VoxelObject):
+                        imgui.separator_text("Dimensions")
+                        dim = self.selected_object.model.opengl_dimensions
+                        _, _ = imgui.drag_float3("##", list(dim), v_speed=0.0, v_min=-10, v_max=10, format="%.0f")
+
+                    if isinstance(self.selected_object, Light):
+                        imgui.separator_text("Light")
+                        _, new_col = imgui.color_edit3("color", self.selected_object.color.to_list())
+                        self.selected_object.color = glm.vec3(new_col)
+
+                        _, self.selected_object.intensity = imgui.slider_float(
+                            "intensity",
+                            self.selected_object.intensity,
+                            v_min=1.0,
+                            v_max=20_000,
+                            format="%.0f",
+                        )
+                        _, self.selected_object.radius = imgui.slider_float(
+                            "radius",
+                            self.selected_object.radius,
+                            v_min=0.1,
+                            v_max=20,
+                            format="%.1f",
+                        )
+
                 else:
                     imgui.text("No Object selected.")
             imgui.end_child()
