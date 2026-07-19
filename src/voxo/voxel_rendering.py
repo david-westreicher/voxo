@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from functools import cached_property
 
 import moderngl
 from moderngl import ComputeShader, Program, Texture, Texture3D
@@ -172,6 +173,10 @@ class VoxelLighting:
 
         sun_direction = suns[0].direction if suns else glm.vec3(0, -1, 0)
         self.specular_lighting.render(camera, sun_direction, gbuffer, voxel_texture, frame_counter)
+
+    @cached_property
+    def textures(self) -> list[Texture]:
+        return [self.irradiance_texture, self.specular_texture]
 
 
 class VoxelAmbientLighting:

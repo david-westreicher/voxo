@@ -5,7 +5,7 @@ authors = [{ name = "David Westreicher" }]
 requires-python = ">=3.13"
 dependencies = [
     "moderngl @ git+https://github.com/david-westreicher/moderngl.git",
-    "moderngl_window==3.1.1",
+    "moderngl-window[imgui]==3.1.1",
 ]
 
 [project.optional-dependencies]

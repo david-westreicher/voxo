@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from functools import cached_property
 
 import moderngl
 import moderngl_window
@@ -64,6 +65,16 @@ class GBuffer:
 
     def smooth_normals(self, camera: Camera) -> None:
         self.normal_smoother.render(self.normal_texture, self.linear_depth, camera)
+
+    @cached_property
+    def textures(self) -> list[Texture]:
+        return [
+            self.albedo_texture,
+            self.normal_texture,
+            self.smooth_normal_texture,
+            self.depth_texture,
+            self.linear_depth,
+        ]
 
 
 class SmoothNormals:
@@ -181,6 +192,15 @@ class PostProcessing:
         current_gbuffer.depth_texture.use(location=3)
         self.quad.render(self.postprocessing_program)
 
+    @cached_property
+    def textures(self) -> list[Texture]:
+        return [
+            self.final_texture,
+            *self.irradiance_taa.textures,
+            *self.irradiance_taa_2.textures,
+            *self.specular_taa.textures,
+        ]
+
 
 class TAA:
     def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int], name: str) -> None:  # type: ignore[name-defined]
@@ -275,6 +295,10 @@ class GBufferPingPong:
     @property
     def last(self) -> GBuffer:
         return self.buffers[1 - self.pingpong]
+
+    @cached_property
+    def textures(self) -> list[Texture]:
+        return [tex for buffer in self.buffers for tex in buffer.textures]
 
     def swap(self) -> None:
         self.pingpong = 1 - self.pingpong

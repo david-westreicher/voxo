@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -7,6 +9,7 @@ from moderngl_window.scene.camera import KeyboardCamera
 from pyglm import glm
 
 from .constants import ASPECT_RATIO, CENTER, GLOBAL_OCCLUDER_DIMENSIONS, SCREEN_DIMENSIONS
+from .debug import DebugView
 from .rendering import GBufferDebug, GBufferPingPong, PostProcessing, WireFrameRenderer
 from .scene import Scene
 from .voxel_rendering import GlobalOccluder, VoxelLighting, VoxelRenderer
@@ -61,13 +64,14 @@ class VoxoWindow(CameraWindow):
     window_size = SCREEN_DIMENSIONS
     title = "voxo"
     resource_dir = Path("resources").resolve()
-    vsync = True
+    vsync = False
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.wnd.mouse_exclusivity = True
         self.time = 0.0
         self.frame_counter = 0
+        self.global_frame_counter = 0
         self.debug = False
         self.camera.position = glm.vec3(CENTER)
         self.scene = Scene(self.ctx)
@@ -81,27 +85,63 @@ class VoxoWindow(CameraWindow):
         self.wireframe_box = WireFrameRenderer(self)
         self.post_processing = PostProcessing(self, SCREEN_DIMENSIONS)
 
+        self.debugger = DebugView(
+            self,
+            [*self.gbuffer.textures, *self.voxel_lighting.textures, *self.post_processing.textures],
+        )
+
+    def on_resize(self, width: int, height: int) -> None:
+        super().on_resize(width, height)
+        self.debugger.resize(width, height)
+
+    def on_mouse_position_event(self, x: int, y: int, dx: int, dy: int) -> None:
+        super().on_mouse_position_event(x, y, dx, dy)
+        self.debugger.mouse_position_event(x, y, dx, dy)  # type:ignore[no-untyped-call]
+
+    def on_mouse_drag_event(self, x: int, y: int, dx: int, dy: int) -> None:
+        self.debugger.mouse_drag_event(x, y, dx, dy)  # type:ignore[no-untyped-call]
+
+    def on_mouse_scroll_event(self, x_offset: float, y_offset: float) -> None:
+        super().on_mouse_scroll_event(x_offset, y_offset)
+        self.debugger.mouse_scroll_event(x_offset, y_offset)  # type:ignore[no-untyped-call]
+
+    def on_mouse_press_event(self, x: int, y: int, button: int) -> None:
+        self.debugger.mouse_press_event(x, y, button)  # type:ignore[no-untyped-call]
+
+    def on_mouse_release_event(self, x: int, y: int, button: int) -> None:
+        self.debugger.mouse_release_event(x, y, button)
+
+    def on_unicode_char_entered(self, char: str) -> None:
+        self.debugger.unicode_char_entered(char)  # type:ignore[no-untyped-call]
+
     def on_key_event(self, key: Any, action: Any, modifiers: KeyModifiers) -> None:
+        self.debugger.key_event(key, action, modifiers)  # type:ignore[no-untyped-call]
         super().on_key_event(key, action, modifiers)
         keys = self.wnd.keys
         if action == keys.ACTION_RELEASE and key == keys.B:
             self.debug = not self.debug
 
-    def on_render(self, time: float, frametime: float) -> None:  # noqa: ARG002
-        self.time = time
-        self.frame_counter += 1
-        if self.timer.is_running:
-            self.scene.update(time)
+    @contextmanager
+    def profile(self, name: str) -> Iterator[None]:
+        with self.ctx.debug_scope(name), self.debugger.profiler.query(name, self.frame_counter):
+            yield
 
-            # Update Occluder
-            with self.ctx.debug_scope("update occluder"):
+    def on_render(self, time: float, frametime: float) -> None:
+        self.time = time
+        self.global_frame_counter += 1
+        self.frame_counter += 0 if self.debugger.is_frame_counter_stopped else 1
+        with self.profile("update occluder"):
+            if self.timer.is_running:
+                self.scene.update(time)
+
+                # Update Occluder
                 self.global_occluder.clear()
                 for voxel_object in self.scene.voxel_objects:
                     self.global_occluder.blit_object(voxel_object)
                 self.global_occluder.update_mipmaps()
 
         # Fill GBuffer
-        with self.ctx.debug_scope("fill gbuffer"):
+        with self.profile("fill gbuffer"):
             gbuffer = self.gbuffer.current
             gbuffer.start()
             self.voxel_renderer.render_objects(
@@ -113,11 +153,11 @@ class VoxoWindow(CameraWindow):
             )
             self.scene.update_lastframe_transforms()
 
-        with self.ctx.debug_scope("smooth normals"):
+        with self.profile("smooth normals"):
             gbuffer.smooth_normals(self.camera)
 
         # Compute lighting
-        with self.ctx.debug_scope("compute lighting"):
+        with self.profile("compute lighting"):
             self.voxel_lighting.render(
                 self.camera,
                 gbuffer,
@@ -128,7 +168,7 @@ class VoxoWindow(CameraWindow):
             )
 
         # Post processing
-        with self.ctx.debug_scope("post processing"):
+        with self.profile("post processing"):
             self.post_processing.render(
                 camera=self.camera,
                 camera_moved=self.last_frame_projview != (self.camera.projection.matrix @ self.camera.matrix),
@@ -148,5 +188,7 @@ class VoxoWindow(CameraWindow):
             self.global_occluder.render_debug(self.camera)
             self.wireframe_box.render(self.camera, self.scene.voxel_objects)
             self.wireframe_box.render(self.camera, [*self.scene.lights, self.global_occluder.occluder_volume])
+        if not self.camera_enabled:
+            self.debugger.render_debug(self.global_frame_counter, frametime)
         self.gbuffer.swap()
         self.last_frame_projview = cast("Mat4", self.camera.projection.matrix @ self.camera.matrix)

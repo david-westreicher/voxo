@@ -62,8 +62,9 @@ vec3 compute_specular_lighting(vec3 pos, vec3 normal) {
         Hit occ_hit = dda(occ_ray, MAX_SPECULAR_DISTANCE, u_global_occluder, bbox);
         if (!occ_hit.hit) {
             specular += skyColor(occ_ray.direction, sun_direction);
+        } else {
+            // TODO(david): We could take a screen space sample here from the last frame's final texture, also use rejection
         }
-        // TODO(david): We could take a screen space sample here from the last frame's final texture, also use rejection
     }
     return specular * 0.1 / MAX_SPECULAR_SAMPLES;
 }

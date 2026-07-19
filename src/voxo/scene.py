@@ -20,8 +20,8 @@ class Scene:
         self.plane_4 = VoxelObject(model=parse_model(Path("./resources/models/plane.txt")))
         self.truck_1 = VoxelObject(model=parse_model(Path("./resources/models/truck.txt")))
         self.truck_2 = VoxelObject(model=parse_model(Path("./resources/models/truck.txt")))
-        # ./../../resources/models/haunted_house.txt
-        self.dwarf = VoxelObject(model=parse_model(Path("./resources/models/christmas_scene.txt")))
+        # ./../../resources/models/treehouse.txt
+        self.dwarf = VoxelObject(model=parse_model(Path("./resources/models/treehouse.txt")))
         self.light_1 = Light(1.0, glm.vec3(20.0, 18.0, 15.0) * 800.0)
         self.light_2 = Light(5.0, glm.vec3(20.0, 1.0, 1.0) * 500.0)
         self.light_3 = Light(5.0, glm.vec3(1.0, 1.0, 20.0) * 500.0)
@@ -48,7 +48,7 @@ class Scene:
 
     @cached_property
     def lights(self) -> Sequence[Light]:
-        return [self.light_1]
+        return []  # self.light_1]
 
     @cached_property
     def suns(self) -> Sequence[Sun]:
