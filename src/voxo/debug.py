@@ -1,8 +1,9 @@
 from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import contextmanager
-from functools import cache, lru_cache
+from functools import lru_cache
 from pathlib import Path
+from typing import cast
 
 import moderngl
 import numpy as np
@@ -15,7 +16,7 @@ from pyglm import glm
 
 from voxo.objects import Object, VoxelObject
 
-from .model import Model, parse_model
+from .model import parse_model
 from .scene import Scene
 
 
@@ -110,7 +111,7 @@ class TextureViewer:
         prev_framebuffer.use()
 
     def render(self) -> None:
-        imgui.set_next_window_size(imgui.ImVec2(1300, 1000), imgui.Cond_.appearing)
+        imgui.set_next_window_size(imgui.ImVec2(1300, 1000), imgui.Cond_.appearing)  # type:ignore[arg-type]
         imgui.begin("Textures", p_open=True)
 
         imgui.begin_child("texture_list", (280, 0), child_flags=True)
@@ -134,8 +135,8 @@ class TextureViewer:
         origin = imgui.get_cursor_screen_pos()
         image_size = glm.ivec2(1000, 1000 * h / w)
         col_red = imgui.get_color_u32(ImVec4(1, 0, 0, 1.0))
-        imgui.image(self.preview_texture.glo, image_size.to_tuple(), uv0=ImVec2(0, 1), uv1=ImVec2(1, 0))  # type:ignore[arg-type]
-        if imgui.is_mouse_dragging(imgui.MouseButton_.right):
+        imgui.image(self.preview_texture.glo, image_size.to_tuple(), uv0=ImVec2(0, 1), uv1=ImVec2(1, 0))
+        if imgui.is_mouse_dragging(imgui.MouseButton_.right):  # type:ignore[arg-type]
             mouse = imgui.get_mouse_pos()
             image_pos = imgui.get_item_rect_min()
             self.zoom_pos.x = mouse.x - image_pos.x
@@ -164,7 +165,7 @@ class TextureViewer:
 
         imgui.begin_group()
         imgui.image(
-            selected_texture.glo,  # type:ignore[arg-type]
+            selected_texture.glo,
             (self.PREVIEW_SIZE, self.PREVIEW_SIZE),
             uv0=ImVec2(uv0.x, uv1.y),
             uv1=ImVec2(uv1.x, uv0.y),
@@ -220,11 +221,14 @@ class SettingsViewer:
 
         flags = implot.AxisFlags_.no_tick_labels
         if implot.begin_plot("##Scrolling", size=(-1, imgui.get_text_line_height() * 20)):
-            implot.setup_axes("", "ms", flags, implot.AxisFlags_.range_fit)
+            implot.setup_axes("", "ms", flags, implot.AxisFlags_.range_fit)  # type:ignore[arg-type]
             implot.setup_axis_limits(
-                implot.ImAxis_.x1, self.current_frame - 100, self.current_frame, implot.Cond_.always
+                implot.ImAxis_.x1,  # type:ignore[arg-type]
+                self.current_frame - 100,
+                self.current_frame,
+                implot.Cond_.always,  # type:ignore[arg-type, attr-defined]
             )
-            implot.setup_axis_limits(implot.ImAxis_.y1, 0, 30)
+            implot.setup_axis_limits(implot.ImAxis_.y1, 0, 30)  # type:ignore[arg-type]
             xs1, ys1 = self.total_buffer.get_data()
             implot.plot_shaded("total time", xs1, ys1)
             for name, buffer in self.buffers.items():
@@ -235,21 +239,22 @@ class SettingsViewer:
         self.current_frame += 1
 
 
+@lru_cache(maxsize=1024)
+def folder_structure(path: Path) -> list[Path]:
+    folder_files = list(path.iterdir())
+    folder_files.sort(key=lambda x: not x.is_dir())
+    return folder_files
+
+
 class ObjectsViewer:
     MODEL_DIR = Path("./resources/models/")
 
     def __init__(self, scene: Scene) -> None:
         self.scene = scene
-        self.selected_object_state = None
-
-    @lru_cache(maxsize=1024)
-    def folder_structure(self, path: Path) -> list[Path]:
-        folder_files = list(path.iterdir())
-        folder_files.sort(key=lambda x: not x.is_dir())
-        return folder_files
+        self.selected_object_state: tuple[str, int] | None = None
 
     def draw_model_file_tree(self, path: Path) -> None:
-        for item in self.folder_structure(path):
+        for item in folder_structure(path):
             if item.is_dir():
                 if imgui.tree_node(str(item.name)):
                     self.draw_model_file_tree(item)
@@ -268,13 +273,13 @@ class ObjectsViewer:
                         if clicked:
                             self.selected_object_state = ("Voxos", i)
                 if imgui.collapsing_header(f"Lights ({len(self.scene.lights)})"):
-                    for i, obj in enumerate(self.scene.lights):
-                        clicked, _ = imgui.selectable(obj.name, self.selected_object_state == ("Lights", i))
+                    for i, light in enumerate(self.scene.lights):
+                        clicked, _ = imgui.selectable(light.name, self.selected_object_state == ("Lights", i))
                         if clicked:
                             self.selected_object_state = ("Lights", i)
                 if imgui.collapsing_header(f"Suns ({len(self.scene.suns)})"):
-                    for i, obj in enumerate(self.scene.suns):
-                        clicked, _ = imgui.selectable(obj.name, self.selected_object_state == ("Suns", i))
+                    for i, sun in enumerate(self.scene.suns):
+                        clicked, _ = imgui.selectable(sun.name, self.selected_object_state == ("Suns", i))
                         if clicked:
                             self.selected_object_state = ("Suns", i)
                 if imgui.collapsing_header("Models"):
@@ -295,8 +300,8 @@ class ObjectsViewer:
 
                     imgui.separator_text("Rotation")
                     r = self.selected_object.rotation
-                    euler = glm.degrees(glm.eulerAngles(r))
-                    _, new_rot = imgui.drag_float3("rotation", euler, v_speed=45, v_min=-360, v_max=360)
+                    euler = cast("glm.vec3", glm.degrees(glm.eulerAngles(r)))
+                    _, new_rot = imgui.drag_float3("rotation", euler.to_list(), v_speed=45, v_min=-360, v_max=360)
                     self.selected_object.rotation = glm.quat(glm.radians(glm.vec3(new_rot)))
 
                     imgui.separator_text("Scale")

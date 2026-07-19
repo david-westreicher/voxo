@@ -81,7 +81,7 @@ class VoxelObject(Object):
 
     def __post_init__(self) -> None:
         if not self.name:
-            global OBJECT_ID_COUNTER
+            global OBJECT_ID_COUNTER  # noqa: PLW0603
             self.name = f"{self.model.path.with_suffix('').name}_{OBJECT_ID_COUNTER}"
             OBJECT_ID_COUNTER += 1
         super().__post_init__()
