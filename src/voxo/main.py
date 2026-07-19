@@ -64,7 +64,7 @@ class VoxoWindow(CameraWindow):
     window_size = SCREEN_DIMENSIONS
     title = "voxo"
     resource_dir = Path("resources").resolve()
-    vsync = False
+    vsync = True
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -88,7 +88,17 @@ class VoxoWindow(CameraWindow):
         self.debugger = DebugView(
             self,
             self.scene,
-            [*self.gbuffer.textures, *self.voxel_lighting.textures, *self.post_processing.textures],
+            [
+                *self.gbuffer.textures,
+                *self.voxel_lighting.textures,
+                *self.post_processing.textures,
+            ],
+            [
+                *self.gbuffer.shaders,
+                *self.voxel_lighting.shaders,
+                *self.post_processing.shaders,
+                *self.voxel_renderer.shaders,
+            ],
         )
 
     def on_resize(self, width: int, height: int) -> None:

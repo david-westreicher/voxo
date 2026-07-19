@@ -21,7 +21,7 @@ class Model:
         return (w, d, h)
 
     def __post_init__(self) -> None:
-        assert len(self.palette) <= 256, "Palette can have at most 256 colors"  # noqa: PLR2004
+        assert len(self.palette) <= 256, "Palette can have at most 256 colors"
         (min_x, min_y, min_z), _ = self.get_min_max(self.voxels)
         self.voxels = [(x - min_x, y - min_y, z - min_z, color_index) for x, y, z, color_index in self.voxels]
         _, (w, h, d) = self.get_min_max(self.voxels)
@@ -74,7 +74,7 @@ def parse_model(model_path: Path) -> Model:
         for line in f:
             if line.startswith("# "):
                 continue
-            x, y, z, col = [int(e) if i < 3 else int(e, base=16) for i, e in enumerate(line.strip().split())]  # noqa: PLR2004
+            x, y, z, col = [int(e) if i < 3 else int(e, base=16) for i, e in enumerate(line.strip().split())]
             voxels.append((x, y, z, col))
     hex_palette = sorted({col for _, _, _, col in voxels})
     palette = sorted(convert_hex_to_rgb(col) for col in hex_palette)

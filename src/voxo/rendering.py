@@ -3,7 +3,7 @@ from functools import cached_property
 
 import moderngl
 import moderngl_window
-from moderngl import Framebuffer, Texture
+from moderngl import Framebuffer, Program, Texture
 from moderngl_window import geometry
 from moderngl_window.scene import Camera
 from pyglm import glm
@@ -76,6 +76,10 @@ class GBuffer:
             self.linear_depth,
         ]
 
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [*self.normal_smoother.shaders]
+
 
 class SmoothNormals:
     def __init__(self, window: moderngl_window.WindowConfig, output_texture: Texture) -> None:  # type: ignore[name-defined]
@@ -97,6 +101,10 @@ class SmoothNormals:
         input_texture.use(location=0)
         depth_texture.use(location=1)
         self.quad.render(self.program)
+
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [self.program]
 
 
 class GBufferDebug:
@@ -201,6 +209,15 @@ class PostProcessing:
             *self.specular_taa.textures,
         ]
 
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [
+            self.postprocessing_program,
+            *self.irradiance_taa.shaders,
+            *self.irradiance_taa_2.shaders,
+            *self.specular_taa.shaders,
+        ]
+
 
 class TAA:
     def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int], name: str) -> None:  # type: ignore[name-defined]
@@ -258,6 +275,10 @@ class TAA:
         last_depth.use(location=6)
         self.quad.render(self.program)
 
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [self.program]
+
 
 class WireFrameRenderer:
     def __init__(self, window: moderngl_window.WindowConfig) -> None:  # type: ignore[name-defined]
@@ -299,6 +320,10 @@ class GBufferPingPong:
     @cached_property
     def textures(self) -> list[Texture]:
         return [tex for buffer in self.buffers for tex in buffer.textures]
+
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [shader for buffer in self.buffers for shader in buffer.shaders]
 
     def swap(self) -> None:
         self.pingpong = 1 - self.pingpong

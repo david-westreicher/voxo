@@ -129,6 +129,10 @@ class VoxelRenderer:
             voxel_object.palette_texture.use(location=1)
             voxel_object.geometry.render(self.program)
 
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [self.program]
+
 
 class VoxelLighting:
     def __init__(self, window: WindowConfig, size: tuple[int, int]) -> None:
@@ -184,6 +188,10 @@ class VoxelLighting:
     def textures(self) -> list[Texture]:
         return [self.irradiance_texture, self.specular_texture]
 
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [*self.ambient_lighting.shaders, *self.direct_lighting.shaders, *self.specular_lighting.shaders]
+
 
 class VoxelAmbientLighting:
     def __init__(self, window: WindowConfig, irradiance_texture: Texture) -> None:
@@ -193,6 +201,7 @@ class VoxelAmbientLighting:
         self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
         self.voxel_ambient_lighting = window.load_program("programs/voxel_ambient_lighting.glsl", defines=GLOBAL_DEFINE)
         self.voxel_ambient_lighting.label = "prog_voxel_ambient_lighting"
+        self.voxel_ambient_lighting["max_occ_samples"] = 2
 
         self.stbnormals = window.load_texture_array("assets/stbn_cosine_normals.png", layers=64)
         self.stbnormals.label = "texarr_stbn_cosine_normals"
@@ -216,6 +225,10 @@ class VoxelAmbientLighting:
         self.stbn_vec3.use(location=5)
 
         self.quad_fs.render(self.voxel_ambient_lighting)
+
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [self.voxel_ambient_lighting]
 
 
 class VoxelDirectLighting:
@@ -289,6 +302,10 @@ class VoxelDirectLighting:
 
         self.quad_fs.render(self.voxel_direct_sun)
 
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [self.voxel_direct_light, self.voxel_direct_sun]
+
 
 class VoxelSpecularLighting:
     def __init__(self, window: WindowConfig, specular_texture: Texture) -> None:
@@ -327,3 +344,7 @@ class VoxelSpecularLighting:
         self.stbnormals.use(location=4)
 
         self.quad_fs.render(self.voxel_specular_lighting)
+
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [self.voxel_specular_lighting]

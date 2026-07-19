@@ -8,7 +8,7 @@ from typing import cast
 import moderngl
 import numpy as np
 from imgui_bundle import ImVec2, ImVec4, imgui, implot
-from moderngl import Context, Query, Texture
+from moderngl import Context, Program, Query, Texture, Uniform
 from moderngl_window import geometry
 from moderngl_window.context.base.window import WindowConfig
 from moderngl_window.integrations.imgui_bundle import ModernglWindowRenderer
@@ -216,7 +216,7 @@ class SettingsViewer:
                 total_time += time
         self.total_buffer.add_point(self.current_frame, total_time * 0.000001)
 
-        imgui.begin("Settings", p_open=True)
+        imgui.begin("Profiler", p_open=True)
         _, self.stop_frame_counter = imgui.checkbox("Stop Framecounter", self.stop_frame_counter)
 
         flags = implot.AxisFlags_.no_tick_labels
@@ -354,8 +354,70 @@ class ObjectsViewer:
         return None
 
 
+def imgui_matrix(name: str, values: tuple[float], v_speed: float) -> None:
+    if len(values) % 4 == 0:
+        for row in range(len(values) // 4):
+            imgui.drag_float4(f"{name}_{row}", list(values[row * 4 : row * 4 + 4]), v_speed=v_speed)
+    else:
+        assert len(values) % 3 == 0, len(values)
+        for row in range(len(values) // 3):
+            imgui.drag_float4(f"{name}_{row}", list(values[row * 3 : row * 3 + 3]), v_speed=v_speed)
+
+
+class ShaderViewer:
+    def __init__(self, shaders: list[Program]) -> None:
+        self.shaders = shaders
+        self.selected_shader_index: int = 0
+
+    def render(self) -> None:  # noqa: C901, PLR0912
+        if imgui.begin("Shaders", p_open=True):
+            if imgui.begin_child("shader_list", size=(200, 0)):
+                seen = set()
+                for i, shader in enumerate(self.shaders):
+                    assert shader.label
+                    name = shader.label
+                    while name in seen:
+                        name += "#"
+                    clicked, _ = imgui.selectable(name, self.selected_shader_index == i)
+                    if clicked:
+                        self.selected_shader_index = i
+                    seen.add(name)
+            imgui.end_child()
+
+            imgui.same_line()
+
+            if imgui.begin_child("properties"):
+                for uniform_name in self.selected_shader:
+                    uniform = self.selected_shader[uniform_name]
+                    if not isinstance(uniform, Uniform):
+                        continue
+                    imgui.separator_text(uniform_name)
+                    if uniform.dimension == 1:
+                        if type(uniform.value) is int:
+                            _, uniform.value = imgui.drag_int(f"##{uniform_name}", uniform.value, v_speed=1)
+                        elif type(uniform.value) is float:
+                            _, uniform.value = imgui.drag_float(f"##{uniform_name}", uniform.value, v_speed=0.1)
+                        else:
+                            raise NotImplementedError
+                    elif uniform.dimension == 3:
+                        imgui.drag_float3(f"##{uniform_name}", uniform.value, v_speed=0.1)
+                    elif uniform.dimension == 4:
+                        imgui.drag_float4(f"##{uniform_name}", uniform.value, v_speed=0.1)
+                    elif uniform.dimension == 16:
+                        imgui_matrix(f"##{uniform_name}", uniform.value, v_speed=0.1)
+                    else:
+                        raise NotImplementedError
+            imgui.end_child()
+
+        imgui.end()
+
+    @property
+    def selected_shader(self) -> Program:
+        return self.shaders[self.selected_shader_index]
+
+
 class DebugView(ModernglWindowRenderer):
-    def __init__(self, window: WindowConfig, scene: Scene, textures: list[Texture]) -> None:
+    def __init__(self, window: WindowConfig, scene: Scene, textures: list[Texture], shaders: list[Program]) -> None:
         self.profiler = Profiler(window.ctx)
         imgui.create_context()
         implot.create_context()
@@ -363,9 +425,13 @@ class DebugView(ModernglWindowRenderer):
         for texture in textures:
             self.register_texture(texture)
         self.texture_viewer = TextureViewer(textures, window)
-        self.objects_viewer = ObjectsViewer(scene)
         self.register_texture(self.texture_viewer.preview_texture)
+        self.objects_viewer = ObjectsViewer(scene)
+        self.shader_viewer = ShaderViewer(shaders)
         self.settings = SettingsViewer()
+
+        io = imgui.get_io()
+        io.config_flags |= imgui.ConfigFlags_.nav_enable_keyboard
 
     @property
     def is_frame_counter_stopped(self) -> bool:
@@ -375,6 +441,7 @@ class DebugView(ModernglWindowRenderer):
         imgui.new_frame()
         self.texture_viewer.render()
         self.objects_viewer.render()
+        self.shader_viewer.render()
         self.settings.render(self.profiler.all_timings(global_frame_counter, frametime))
         imgui.render()
 
