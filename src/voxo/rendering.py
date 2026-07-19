@@ -182,7 +182,7 @@ class PostProcessing:
 
         self.postprocessing_program["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.postprocessing_program["uInvView"].write(glm.inverse(camera.matrix))
-        if suns:
+        if suns and suns[0].visible:
             self.postprocessing_program["sun_direction"].write(suns[0].direction)
         else:
             self.postprocessing_program["sun_direction"].write(glm.vec3(0, -1, 0))

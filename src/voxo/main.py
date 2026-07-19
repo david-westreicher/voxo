@@ -87,6 +87,7 @@ class VoxoWindow(CameraWindow):
 
         self.debugger = DebugView(
             self,
+            self.scene,
             [*self.gbuffer.textures, *self.voxel_lighting.textures, *self.post_processing.textures],
         )
 
@@ -131,13 +132,14 @@ class VoxoWindow(CameraWindow):
         self.global_frame_counter += 1
         self.frame_counter += 0 if self.debugger.is_frame_counter_stopped else 1
         with self.profile("update occluder"):
-            if self.timer.is_running:
+            if self.timer.is_running or not self.camera_enabled:
                 self.scene.update(time)
 
                 # Update Occluder
                 self.global_occluder.clear()
                 for voxel_object in self.scene.voxel_objects:
-                    self.global_occluder.blit_object(voxel_object)
+                    if voxel_object.visible:
+                        self.global_occluder.blit_object(voxel_object)
                 self.global_occluder.update_mipmaps()
 
         # Fill GBuffer

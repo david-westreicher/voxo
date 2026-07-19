@@ -12,13 +12,23 @@ from pyglm.glm import vec3 as Vec3  # noqa: N812
 
 from .model import Model
 
+OBJECT_ID_COUNTER = 0
+
 
 @dataclass
 class Object:
     geometry: VAO
+    name: str = ""
+    visible: bool = True
     rotation: Quat = field(default=glm.quat())
     translation: Vec3 = field(default=glm.vec3(0.0))
     scale: Vec3 = field(default=glm.vec3(1.0))
+
+    def __post_init__(self) -> None:
+        if not self.name:
+            global OBJECT_ID_COUNTER  # noqa: PLW0603
+            self.name = f"obj-{OBJECT_ID_COUNTER:04d}"
+            OBJECT_ID_COUNTER += 1
 
     @property
     def transform(self) -> Mat4:
@@ -70,6 +80,11 @@ class VoxelObject(Object):
     _palette_texture: Texture | None = None
 
     def __post_init__(self) -> None:
+        if not self.name:
+            global OBJECT_ID_COUNTER
+            self.name = f"{self.model.path.with_suffix('').name}_{OBJECT_ID_COUNTER}"
+            OBJECT_ID_COUNTER += 1
+        super().__post_init__()
         self.geometry = geometry.cube(
             size=self.model.opengl_dimensions,
             center=(glm.vec3(self.model.opengl_dimensions) * 0.5).to_tuple(),

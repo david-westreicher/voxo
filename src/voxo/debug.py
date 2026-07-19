@@ -1,6 +1,8 @@
 from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import contextmanager
+from functools import cache, lru_cache
+from pathlib import Path
 
 import moderngl
 import numpy as np
@@ -10,6 +12,11 @@ from moderngl_window import geometry
 from moderngl_window.context.base.window import WindowConfig
 from moderngl_window.integrations.imgui_bundle import ModernglWindowRenderer
 from pyglm import glm
+
+from voxo.objects import Object, VoxelObject
+
+from .model import Model, parse_model
+from .scene import Scene
 
 
 class Profiler:
@@ -104,7 +111,7 @@ class TextureViewer:
 
     def render(self) -> None:
         imgui.set_next_window_size(imgui.ImVec2(1300, 1000), imgui.Cond_.appearing)
-        imgui.begin("Texture Viewer", p_open=True)
+        imgui.begin("Textures", p_open=True)
 
         imgui.begin_child("texture_list", (280, 0), child_flags=True)
         for i, tex in enumerate(self.textures):
@@ -228,8 +235,96 @@ class SettingsViewer:
         self.current_frame += 1
 
 
+class ObjectsViewer:
+    MODEL_DIR = Path("./resources/models/")
+
+    def __init__(self, scene: Scene) -> None:
+        self.scene = scene
+        self.selected_object_state = None
+
+    @lru_cache(maxsize=1024)
+    def folder_structure(self, path: Path) -> list[Path]:
+        folder_files = list(path.iterdir())
+        folder_files.sort(key=lambda x: not x.is_dir())
+        return folder_files
+
+    def draw_model_file_tree(self, path: Path) -> None:
+        for item in self.folder_structure(path):
+            if item.is_dir():
+                if imgui.tree_node(str(item.name)):
+                    self.draw_model_file_tree(item)
+                    imgui.tree_pop()
+            elif item.suffix.lower() == ".txt":
+                clicked, _ = imgui.selectable(str(item.name), p_selected=False)
+                if clicked:
+                    self.scene.add_voxel_object(VoxelObject(model=parse_model(item)))
+
+    def render(self) -> None:  # noqa: C901, PLR0912
+        if imgui.begin("Objects", p_open=True):
+            if imgui.begin_child("object_list", size=(200, 0)):
+                if imgui.collapsing_header(f"Voxos ({len(self.scene.voxel_objects)})"):
+                    for i, obj in enumerate(self.scene.voxel_objects):
+                        clicked, _ = imgui.selectable(obj.name, self.selected_object_state == ("Voxos", i))
+                        if clicked:
+                            self.selected_object_state = ("Voxos", i)
+                if imgui.collapsing_header(f"Lights ({len(self.scene.lights)})"):
+                    for i, obj in enumerate(self.scene.lights):
+                        clicked, _ = imgui.selectable(obj.name, self.selected_object_state == ("Lights", i))
+                        if clicked:
+                            self.selected_object_state = ("Lights", i)
+                if imgui.collapsing_header(f"Suns ({len(self.scene.suns)})"):
+                    for i, obj in enumerate(self.scene.suns):
+                        clicked, _ = imgui.selectable(obj.name, self.selected_object_state == ("Suns", i))
+                        if clicked:
+                            self.selected_object_state = ("Suns", i)
+                if imgui.collapsing_header("Models"):
+                    self.draw_model_file_tree(self.MODEL_DIR)
+            imgui.end_child()
+
+            imgui.same_line()
+
+            if imgui.begin_child("properties"):
+                if self.selected_object:
+                    _, self.selected_object.visible = imgui.checkbox("Visible", self.selected_object.visible)
+                    imgui.separator_text("Transform")
+                    t = self.selected_object.translation
+                    _, new_trans = imgui.drag_float3(
+                        "translation", t.to_list(), v_speed=1, v_min=-1000, v_max=1000, format="%.1f"
+                    )
+                    self.selected_object.translation = glm.vec3(new_trans)
+
+                    imgui.separator_text("Rotation")
+                    r = self.selected_object.rotation
+                    euler = glm.degrees(glm.eulerAngles(r))
+                    _, new_rot = imgui.drag_float3("rotation", euler, v_speed=45, v_min=-360, v_max=360)
+                    self.selected_object.rotation = glm.quat(glm.radians(glm.vec3(new_rot)))
+
+                    imgui.separator_text("Scale")
+                    s = self.selected_object.scale
+                    _, new_scale = imgui.drag_float3("scale", s.to_list(), v_speed=0.1, v_min=-10, v_max=10)
+                    self.selected_object.scale = glm.vec3(new_scale)
+                else:
+                    imgui.text("No Object selected.")
+            imgui.end_child()
+
+        imgui.end()
+
+    @property
+    def selected_object(self) -> Object | None:
+        if self.selected_object_state is None:
+            return None
+        obj_type, index = self.selected_object_state
+        if obj_type == "Suns":
+            return self.scene.suns[index]
+        if obj_type == "Lights":
+            return self.scene.lights[index]
+        if obj_type == "Voxos":
+            return self.scene.voxel_objects[index]
+        return None
+
+
 class DebugView(ModernglWindowRenderer):
-    def __init__(self, window: WindowConfig, textures: list[Texture]) -> None:
+    def __init__(self, window: WindowConfig, scene: Scene, textures: list[Texture]) -> None:
         self.profiler = Profiler(window.ctx)
         imgui.create_context()
         implot.create_context()
@@ -237,6 +332,7 @@ class DebugView(ModernglWindowRenderer):
         for texture in textures:
             self.register_texture(texture)
         self.texture_viewer = TextureViewer(textures, window)
+        self.objects_viewer = ObjectsViewer(scene)
         self.register_texture(self.texture_viewer.preview_texture)
         self.settings = SettingsViewer()
 
@@ -247,6 +343,7 @@ class DebugView(ModernglWindowRenderer):
     def render_debug(self, global_frame_counter: int, frametime: float) -> None:
         imgui.new_frame()
         self.texture_viewer.render()
+        self.objects_viewer.render()
         self.settings.render(self.profiler.all_timings(global_frame_counter, frametime))
         imgui.render()
 

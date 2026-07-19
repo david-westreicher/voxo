@@ -118,6 +118,8 @@ class VoxelRenderer:
 
         ctx.enable_only(moderngl.DEPTH_TEST)
         for i, voxel_object in sorted(enumerate(voxel_objects), key=cam_distance):
+            if not voxel_object.visible:
+                continue
             # TODO(david): use linear depth for Z-filter
             prev_model = prev_model_transforms[i]
             self.program["m_model"].write(voxel_object.transform)
@@ -166,12 +168,16 @@ class VoxelLighting:
         ctx.blend_equation = moderngl.FUNC_ADD  # type:ignore[assignment]
         ctx.blend_func = (moderngl.ONE, moderngl.ONE)
         for sun in suns:
+            if not sun.visible:
+                continue
             self.direct_lighting.render_sun(camera, gbuffer, voxel_texture, sun, frame_counter)
         for light in lights:
+            if not light.visible:
+                continue
             self.direct_lighting.render_light(camera, gbuffer, voxel_texture, light, frame_counter)
         ctx.disable(moderngl.BLEND)
 
-        sun_direction = suns[0].direction if suns else glm.vec3(0, -1, 0)
+        sun_direction = suns[0].direction if suns and suns[0].visible else glm.vec3(0, -1, 0)
         self.specular_lighting.render(camera, sun_direction, gbuffer, voxel_texture, frame_counter)
 
     @cached_property

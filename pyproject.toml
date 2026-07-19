@@ -6,6 +6,8 @@ requires-python = ">=3.13"
 dependencies = [
     "moderngl @ git+https://github.com/david-westreicher/moderngl.git",
     "moderngl-window[imgui]==3.1.1",
+    # downgrade imgui-bundle: https://github.com/moderngl/moderngl-window/pull/224
+    "imgui-bundle==1.6.3",
 ]
 
 [project.optional-dependencies]

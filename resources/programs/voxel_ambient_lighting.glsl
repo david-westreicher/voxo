@@ -34,7 +34,7 @@ layout(binding = 5) uniform sampler2DArray u_stbn_vec3;
 
 layout(location = 0) out vec3 out_irradiance;
 
-const int MAX_OCC_SAMPLES = 3;
+const int MAX_OCC_SAMPLES = 2;
 const int MAX_OCC_DISTANCE = 300;
 
 uint rnd_seed = uint(gl_FragCoord.x) + uint(gl_FragCoord.y) * 4097U + uint(frame_counter);

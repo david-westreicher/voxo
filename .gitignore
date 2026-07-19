@@ -3,3 +3,4 @@ src/voxo.egg-info/
 .env
 build
 models/
+imgui.ini
