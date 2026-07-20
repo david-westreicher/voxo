@@ -1,4 +1,4 @@
-#version 420
+#version 430
 
 #if defined VERTEX_SHADER
 
@@ -15,7 +15,7 @@ void main() {
 #elif defined FRAGMENT_SHADER
 #include programs/pcg_random.glsl
 #include programs/utils.glsl
-#line 19
+#line 19 3
 
 in vec2 uv;
 
@@ -24,7 +24,7 @@ uniform mat4 uProjection;
 uniform mat4 uInvView;
 uniform mat4 uInvProjection;
 uniform int frame_counter;
-uniform int max_occ_samples = 2;
+uniform int max_occ_samples;
 
 layout(binding = 0) uniform sampler2D u_normal;
 layout(binding = 1) uniform sampler2D u_depth;
@@ -56,7 +56,7 @@ vec3 compute_ambient_lighting(vec3 pos, vec3 normal, Pcg32State rnd) {
         vec3 jitter_point = (generate_random_stbn_vec3(u_stbn_vec3, jitter_pos_state) - 0.5);
         vec3 jitter = jitter_point - normal * dot(jitter_point, normal);
         Ray occ_ray = Ray(ray_start + jitter, generate_random_cosine_weighted_normal(normal, u_stbn_normals, normal_rand_state));
-        Hit occ_hit = dda(occ_ray, MAX_OCC_DISTANCE, u_global_occluder, bbox);
+        Hit occ_hit = sparse_raymarch(occ_ray, MAX_OCC_DISTANCE, u_global_occluder, bbox, 2);
         if (!occ_hit.hit) {
             ambient += skyColor(occ_ray.direction, vec3(0, -1, 0));
         }

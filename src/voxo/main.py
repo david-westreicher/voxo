@@ -64,7 +64,7 @@ class VoxoWindow(CameraWindow):
     window_size = SCREEN_DIMENSIONS
     title = "voxo"
     resource_dir = Path("resources").resolve()
-    vsync = True
+    vsync = False
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)

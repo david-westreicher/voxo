@@ -41,6 +41,9 @@ class GlobalOccluder:
             create_mip_maps=True,
         )
         self.occluder_texture.filter = moderngl.NEAREST_MIPMAP_NEAREST, moderngl.NEAREST
+        self.occluder_texture.repeat_x = False
+        self.occluder_texture.repeat_y = False
+        self.occluder_texture.repeat_z = False
         self.occluder_texture.label = "tex3d_global_occluder"
 
         self.occluder_volume = Object(geometry=geometry.cube(size=dimensions))

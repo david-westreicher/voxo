@@ -59,7 +59,7 @@ vec3 compute_specular_lighting(vec3 pos, vec3 normal) {
         vec3 random_normal = generate_random_stbn_unitvec3(u_stbn_unitvec3, normal_rand_state) * ROUGHNESS * ROUGHNESS;
         vec3 reflection_jittered = normalize(reflection_vec + random_normal);
         Ray occ_ray = Ray(ray_start, reflection_jittered);
-        Hit occ_hit = dda(occ_ray, MAX_SPECULAR_DISTANCE, u_global_occluder, bbox);
+        Hit occ_hit = sparse_raymarch(occ_ray, MAX_SPECULAR_DISTANCE, u_global_occluder, bbox, 16);
         if (!occ_hit.hit) {
             specular += skyColor(occ_ray.direction, sun_direction);
         } else {
