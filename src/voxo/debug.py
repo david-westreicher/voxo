@@ -14,7 +14,7 @@ from moderngl_window.context.base.window import WindowConfig
 from moderngl_window.integrations.imgui_bundle import ModernglWindowRenderer
 from pyglm import glm
 
-from voxo.objects import Light, Object, VoxelObject
+from voxo.objects import Light, Object, Sun, VoxelObject
 
 from .model import parse_model
 from .scene import Scene
@@ -264,7 +264,7 @@ class ObjectsViewer:
                 if clicked:
                     self.scene.add_voxel_object(VoxelObject(model=parse_model(item)))
 
-    def render(self) -> None:  # noqa: C901, PLR0912
+    def render(self) -> None:  # noqa: C901, PLR0912, PLR0915
         if imgui.begin("Objects", p_open=True):
             if imgui.begin_child("object_list", size=(200, 0)):
                 if imgui.collapsing_header(f"Voxos ({len(self.scene.voxel_objects)})"):
@@ -329,9 +329,35 @@ class ObjectsViewer:
                         _, self.selected_object.radius = imgui.slider_float(
                             "radius",
                             self.selected_object.radius,
-                            v_min=0.1,
+                            v_min=0.05,
                             v_max=20,
-                            format="%.1f",
+                            format="%.2f",
+                            flags=imgui.SliderFlags_.logarithmic,  # type:ignore[arg-type]
+                        )
+
+                    if isinstance(self.selected_object, Sun):
+                        imgui.separator_text("Sun")
+
+                        _, new_dir = imgui.drag_float3(
+                            "direction",
+                            self.selected_object.direction.to_list(),
+                            v_speed=0.1,
+                            v_min=-1,
+                            v_max=1,
+                            format="%.2f",
+                        )
+                        self.selected_object.direction = glm.vec3(new_dir)
+
+                        _, new_col = imgui.color_edit3("color", self.selected_object.color.to_list())
+                        self.selected_object.color = glm.vec3(new_col)
+
+                        _, self.selected_object.radius = imgui.slider_float(
+                            "radius",
+                            self.selected_object.radius,
+                            v_min=0.05,
+                            v_max=4,
+                            format="%.2f",
+                            flags=imgui.SliderFlags_.logarithmic,  # type:ignore[arg-type]
                         )
 
                 else:

@@ -99,7 +99,7 @@ vec3 compute_direct_sun(vec3 pos, vec3 normal, vec3 sun_direction) {
     vec3 L = normalize(sample_disk_light(sun_direction, normalize(sun_direction), lightRadius, generate_random_vec2(light_rand_state))); // direction to light
 
     Ray sun_ray = Ray(ray_start, L);
-    Hit sun_hit = dda(sun_ray, MAX_STEPS, u_voxel_data, bbox);
+    Hit sun_hit = sparse_raymarch(sun_ray, MAX_STEPS, u_voxel_data, bbox, 16);
     if (!sun_hit.hit) {
         // Lambert cosine term
         float NdotL = max(dot(normal, L), 0.0);
