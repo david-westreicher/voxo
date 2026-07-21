@@ -242,7 +242,7 @@ class SettingsViewer:
 @lru_cache(maxsize=1024)
 def folder_structure(path: Path) -> list[Path]:
     folder_files = list(path.iterdir())
-    folder_files.sort(key=lambda x: not x.is_dir())
+    folder_files.sort(key=lambda x: (not x.is_dir(), x.name))
     return folder_files
 
 
@@ -302,7 +302,7 @@ class ObjectsViewer:
 
                     r = self.selected_object.rotation
                     euler = cast("glm.vec3", glm.degrees(glm.eulerAngles(r)))
-                    _, new_rot = imgui.drag_float3("rotation", euler.to_list(), v_speed=45, v_min=-360, v_max=360)
+                    _, new_rot = imgui.drag_float3("rotation", euler.to_list(), v_speed=1, v_min=-360, v_max=360)
                     self.selected_object.rotation = glm.quat(glm.radians(glm.vec3(new_rot)))
 
                     s = self.selected_object.scale

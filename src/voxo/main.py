@@ -154,17 +154,18 @@ class VoxoWindow(CameraWindow):
 
         # Fill GBuffer
         with self.profile("fill gbuffer"):
+            visible_objects = self.scene.visible_objects(self.camera)
             gbuffer = self.gbuffer.current
             gbuffer.start()
             self.voxel_renderer.render_objects(
                 self.camera,
-                self.scene.voxel_objects,
-                self.scene.last_frame_transforms,
+                visible_objects,
                 self.last_frame_projview,
                 self.gbuffer.current.linear_depth,
                 self.frame_counter,
             )
-            self.scene.update_lastframe_transforms()
+            for obj in self.scene.voxel_objects:
+                obj.last_frame_transform = obj.transform
 
         with self.profile("smooth normals"):
             gbuffer.smooth_normals(self.camera)

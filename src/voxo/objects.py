@@ -8,9 +8,9 @@ from moderngl_window.opengl.vao import VAO
 from pyglm import glm
 from pyglm.glm import mat4x4 as Mat4  # noqa: N812  # noqa: N812
 from pyglm.glm import quat as Quat  # noqa: N812
-from pyglm.glm import vec3 as Vec3  # noqa: N812
 
 from .model import Model
+from .utils import Sphere
 
 OBJECT_ID_COUNTER = 0
 
@@ -21,8 +21,8 @@ class Object:
     name: str = ""
     visible: bool = True
     rotation: Quat = field(default=glm.quat())
-    translation: Vec3 = field(default=glm.vec3(0.0))
-    scale: Vec3 = field(default=glm.vec3(1.0))
+    translation: glm.vec3 = field(default=glm.vec3(0.0))
+    scale: glm.vec3 = field(default=glm.vec3(1.0))
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -34,7 +34,7 @@ class Object:
     def transform(self) -> Mat4:
         return cast("Mat4", glm.translate(self.translation) @ glm.mat4_cast(self.rotation) @ glm.scale(self.scale))
 
-    def rotate(self, angle: float, axis: Vec3) -> None:
+    def rotate(self, angle: float, axis: glm.vec3) -> None:
         self.rotation = cast("Quat", glm.rotate(self.rotation, angle, axis))
 
 
@@ -80,6 +80,7 @@ class Sun(Object):
 class VoxelObject(Object):
     model: Model
     geometry: VAO = field(default_factory=lambda: geometry.cube(size=(1, 1, 1)))
+    last_frame_transform: glm.mat4x4 = field(default_factory=lambda: glm.identity(glm.mat4x4))
     _voxel_texture: Texture3D | None = None
     _palette_texture: Texture | None = None
 
@@ -93,7 +94,7 @@ class VoxelObject(Object):
             size=self.model.opengl_dimensions,
             center=(glm.vec3(self.model.opengl_dimensions) * 0.5).to_tuple(),
         )
-        self._center_translation: Vec3 = cast("Vec3", glm.floor(glm.vec3(self.model.opengl_dimensions) * 0.5))
+        self._center_translation: glm.vec3 = cast("glm.vec3", glm.floor(glm.vec3(self.model.opengl_dimensions) * 0.5))
         self._center_translation.y = 0
 
     def upload_to_gpu(self, ctx: Context) -> None:
@@ -118,9 +119,16 @@ class VoxelObject(Object):
         self._palette_texture.repeat_y = False
 
     @property
-    def center(self) -> Vec3:
-        transform = glm.translate(self.translation) @ glm.mat4_cast(self.rotation) @ glm.scale(self.scale)
-        return glm.vec3(transform * (glm.vec4(*self.model.opengl_dimensions, 1.0) * 0.5))
+    def center(self) -> glm.vec3:
+        dim = glm.vec4(glm.vec3(self.model.opengl_dimensions) * 0.5, 1.0)  # type:ignore[call-overload]
+        pos = cast("glm.vec4", self.transform * dim)
+        pos = pos / pos.w
+        return glm.vec3(pos)
+
+    @property
+    def bounding_sphere(self) -> Sphere:
+        radius = glm.length(glm.vec3(self.model.opengl_dimensions) * 0.8)
+        return Sphere(radius=radius, center=self.center)
 
     @property
     def voxel_texture(self) -> Texture3D:

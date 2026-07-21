@@ -97,11 +97,10 @@ class VoxelRenderer:
         self.program: Program = window.load_program("programs/gbuffer_create.glsl", defines=GLOBAL_DEFINE)
         self.program.label = "prog_gbuffer_create"
 
-    def render_objects(  # noqa: PLR0913
+    def render_objects(
         self,
         camera: Camera,
         voxel_objects: Sequence[VoxelObject],
-        prev_model_transforms: list[Mat4],
         prev_viewproj: Mat4,
         linear_depth_texture: Texture,
         frame_counter: int,
@@ -114,18 +113,16 @@ class VoxelRenderer:
         self.program["uInvView"].write(glm.inverse(camera.matrix))
         self.program["frame_counter"].value = frame_counter
 
-        def cam_distance(enum_obj: tuple[int, VoxelObject]) -> float:
-            _, obj = enum_obj
+        def cam_distance(obj: VoxelObject) -> float:
             return glm.distance2(camera.position, obj.center)
 
         ctx.enable_only(moderngl.DEPTH_TEST)
-        for i, voxel_object in sorted(enumerate(voxel_objects), key=cam_distance):
+        for voxel_object in sorted(voxel_objects, key=cam_distance):
             if not voxel_object.visible:
                 continue
-            prev_model = prev_model_transforms[i]
             self.program["m_model"].write(voxel_object.transform)
             self.program["m_model_inverse"].write(glm.inverse(voxel_object.transform))
-            self.program["m_prev_model"].write(prev_model)
+            self.program["m_prev_model"].write(voxel_object.last_frame_transform)
             voxel_object.voxel_texture.use(location=0)
             voxel_object.palette_texture.use(location=1)
             linear_depth_texture.use(location=2)

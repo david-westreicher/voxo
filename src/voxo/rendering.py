@@ -74,6 +74,7 @@ class GBuffer:
             self.smooth_normal_texture,
             self.depth_texture,
             self.linear_depth,
+            self.motion_vectors,
         ]
 
     @cached_property

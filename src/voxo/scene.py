@@ -3,10 +3,12 @@ from functools import cached_property
 from pathlib import Path
 
 from moderngl import Context
+from moderngl_window.scene.camera import Camera
 from pyglm import glm
 
 from .model import parse_model
 from .objects import Light, Sun, VoxelObject
+from .utils import frustum_cull_spheres
 
 
 class Scene:
@@ -16,17 +18,18 @@ class Scene:
         self.last_frame_transforms: list[glm.mat4x4] = []
         self.ctx = ctx
 
+        self.sun = Sun()
+        plane_model = parse_model(Path("./resources/models/plane.txt"))
         self.corner_left = self.add_voxel_object(VoxelObject(model=parse_model(Path("./resources/models/corner.txt"))))
         self.corner_right = self.add_voxel_object(VoxelObject(model=parse_model(Path("./resources/models/corner.txt"))))
         self.corner_front = self.add_voxel_object(VoxelObject(model=parse_model(Path("./resources/models/corner.txt"))))
-        self.plane_1 = self.add_voxel_object(VoxelObject(model=parse_model(Path("./resources/models/plane.txt"))))
-        self.plane_2 = self.add_voxel_object(VoxelObject(model=parse_model(Path("./resources/models/plane.txt"))))
-        self.plane_3 = self.add_voxel_object(VoxelObject(model=parse_model(Path("./resources/models/plane.txt"))))
-        self.plane_4 = self.add_voxel_object(VoxelObject(model=parse_model(Path("./resources/models/plane.txt"))))
+        self.plane_1 = self.add_voxel_object(VoxelObject(model=plane_model))
+        self.plane_2 = self.add_voxel_object(VoxelObject(model=plane_model))
+        self.plane_3 = self.add_voxel_object(VoxelObject(model=plane_model))
+        self.plane_4 = self.add_voxel_object(VoxelObject(model=plane_model))
         self.truck_1 = self.add_voxel_object(VoxelObject(model=parse_model(Path("./resources/models/truck.txt"))))
         self.dwarf = self.add_voxel_object(VoxelObject(model=parse_model(Path("./resources/models/treehouse.txt"))))
         self.light_1 = self.add_light(Light(1.0, glm.vec3(1.0, 0.8, 0.7), intensity=1600.0))
-        self.sun = Sun()
 
         self.corner_left.translation = glm.vec3(64, 0, 64)
         self.corner_right.translation = glm.vec3(256 + 64, 0, 64)
@@ -37,14 +40,12 @@ class Scene:
         self.plane_2.translation = glm.vec3(64 + 128 - 1, 0, 64 + 127)
         self.plane_3.translation = glm.vec3(64 + 1, 70, 64)
         self.plane_4.translation = glm.vec3(64 + 128, 70, 64)
-
         self.truck_1.translation = glm.vec3(95, 1, 60)
         self.dwarf.translation = glm.vec3(128, 1, 190)
 
     def add_voxel_object(self, voxel_object: VoxelObject) -> VoxelObject:
         self.voxel_objects.append(voxel_object)
         voxel_object.upload_to_gpu(self.ctx)
-        self.last_frame_transforms.append(voxel_object.transform)
         return voxel_object
 
     def add_light(self, light: Light) -> Light:
@@ -59,6 +60,14 @@ class Scene:
         self.sun.direction = glm.normalize(glm.vec3(glm.sin(time), 1, glm.cos(time)))
         self.light_1.translation = glm.vec3(140, 56, 180) + glm.rotateY(glm.vec3(10, 0, 0), time)
 
-    def update_lastframe_transforms(self) -> None:
-        for i, voxel_object in enumerate(self.voxel_objects):
-            self.last_frame_transforms[i] = voxel_object.transform
+    def visible_objects(self, camera: Camera) -> list[VoxelObject]:
+        bounding_spheres = [obj.bounding_sphere for obj in self.voxel_objects]
+        return [
+            obj
+            for obj, vis in zip(
+                self.voxel_objects,
+                frustum_cull_spheres(camera.matrix, camera.projection.matrix, bounding_spheres),
+                strict=True,
+            )
+            if vis
+        ]
