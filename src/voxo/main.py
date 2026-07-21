@@ -161,6 +161,7 @@ class VoxoWindow(CameraWindow):
                 self.scene.voxel_objects,
                 self.scene.last_frame_transforms,
                 self.last_frame_projview,
+                self.gbuffer.current.linear_depth,
                 self.frame_counter,
             )
             self.scene.update_lastframe_transforms()

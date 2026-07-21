@@ -118,6 +118,11 @@ class VoxelObject(Object):
         self._palette_texture.repeat_y = False
 
     @property
+    def center(self) -> Vec3:
+        transform = glm.translate(self.translation) @ glm.mat4_cast(self.rotation) @ glm.scale(self.scale)
+        return glm.vec3(transform * (glm.vec4(*self.model.opengl_dimensions, 1.0) * 0.5))
+
+    @property
     def voxel_texture(self) -> Texture3D:
         assert self._voxel_texture
         return self._voxel_texture
