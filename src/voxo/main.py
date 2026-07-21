@@ -73,7 +73,7 @@ class VoxoWindow(CameraWindow):
         self.frame_counter = 0
         self.global_frame_counter = 0
         self.debug = False
-        self.camera.position = glm.vec3(CENTER)
+        self.camera.position = glm.vec3(CENTER) + glm.vec3(0, 100, 0)
         self.scene = Scene(self.ctx)
 
         self.last_frame_projview: Mat4 = cast("Mat4", self.camera.projection.matrix @ self.camera.matrix)
@@ -88,6 +88,7 @@ class VoxoWindow(CameraWindow):
         self.debugger = DebugView(
             self,
             self.scene,
+            self.camera,
             [
                 *self.gbuffer.textures,
                 *self.voxel_lighting.textures,
