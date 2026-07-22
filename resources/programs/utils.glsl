@@ -1,7 +1,10 @@
 #include programs/random.glsl
 # line 2 2
 
+#define MAX_MIP_LEVELS -1
 #define SCREEN_DIMENSIONS vec2(1, 1)
+
+const float SQRT_3 = 1.7320508;
 
 struct Hit {
     bool hit;
@@ -75,6 +78,46 @@ vec3 skyColor2(vec3 rayDir) {
 bool is_inside_box(vec3 p, Box box) {
     return all(greaterThanEqual(p, box.min)) &&
         all(lessThan(p, box.max));
+}
+
+uint sample_voxel_float(vec3 p, Box bbox, usampler3D u_voxel_data, float mip) {
+    vec3 local_coord = p / bbox.max;
+    return textureLod(u_voxel_data, local_coord, mip).r;
+}
+
+Hit sparse_raymarch(Ray ray, float max_distance, usampler3D occluder, Box bbox, int scale_factor) {
+    // Idea: Use fixed step size, if next mip voxel is reached double step size + increase mip size
+    // +-------C
+    // |   |   |
+    // +---+---+
+    // |   |   |
+    // A---+---+
+    // In the worst case we started at A and have to go until C before we double the step size
+    // Therefore we take the diagonal of the cube: diag = 4 * current_mip * sqrt(3)
+    // which corresponds to a scale_factor of 2
+    float t = 0;
+    float step_size = 0.5;
+    int current_mip = 0;
+    Hit hit;
+    while (t < max_distance) {
+        vec3 pos = ray.origin + t * ray.direction;
+        if (!is_inside_box(pos, bbox) || current_mip >= MAX_MIP_LEVELS) {
+            break;
+        }
+        if (sample_voxel_float(pos, bbox, occluder, current_mip) > 0u) {
+            hit.hit = true;
+            hit.t = t;
+            hit.position = pos;
+            return hit;
+        }
+        t += step_size;
+        if (t >= (scale_factor << current_mip) * SQRT_3) {
+            current_mip++;
+            step_size *= 2;
+        }
+    }
+    hit.hit = false;
+    return hit;
 }
 
 uint voxelmap(vec3 p, Box bbox, usampler3D u_voxel_data)

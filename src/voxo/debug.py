@@ -12,12 +12,14 @@ from moderngl import Context, Program, Query, Texture, Uniform
 from moderngl_window import geometry
 from moderngl_window.context.base.window import WindowConfig
 from moderngl_window.integrations.imgui_bundle import ModernglWindowRenderer
+from moderngl_window.scene import Camera
 from pyglm import glm
 
-from voxo.objects import Light, Object, VoxelObject
-
+from .constants import SCREEN_DIMENSIONS
 from .model import parse_model
+from .objects import Light, Object, Sun, VoxelObject
 from .scene import Scene
+from .utils import compute_camera_ray, ray_sphere_intersection
 
 
 class Profiler:
@@ -242,7 +244,7 @@ class SettingsViewer:
 @lru_cache(maxsize=1024)
 def folder_structure(path: Path) -> list[Path]:
     folder_files = list(path.iterdir())
-    folder_files.sort(key=lambda x: not x.is_dir())
+    folder_files.sort(key=lambda x: (not x.is_dir(), x.name))
     return folder_files
 
 
@@ -262,9 +264,11 @@ class ObjectsViewer:
             elif item.suffix.lower() == ".txt":
                 clicked, _ = imgui.selectable(str(item.name), p_selected=False)
                 if clicked:
-                    self.scene.add_voxel_object(VoxelObject(model=parse_model(item)))
+                    new_obj = VoxelObject(model=parse_model(item))
+                    self.scene.add_voxel_object(new_obj)
+                    self.selected_object_state = ("Voxos", self.scene.voxel_objects.index(new_obj))
 
-    def render(self) -> None:  # noqa: C901, PLR0912
+    def render(self) -> None:  # noqa: C901, PLR0912, PLR0915
         if imgui.begin("Objects", p_open=True):
             if imgui.begin_child("object_list", size=(200, 0)):
                 if imgui.collapsing_header(f"Voxos ({len(self.scene.voxel_objects)})"):
@@ -278,7 +282,9 @@ class ObjectsViewer:
                         if clicked:
                             self.selected_object_state = ("Lights", i)
                     if imgui.button("Add Light", size=(0, 0)):
-                        self.scene.add_light(Light())
+                        new_light = Light()
+                        self.scene.add_light(new_light)
+                        self.selected_object_state = ("Lights", self.scene.lights.index(new_light))
                 if imgui.collapsing_header(f"Suns ({len(self.scene.suns)})"):
                     for i, sun in enumerate(self.scene.suns):
                         clicked, _ = imgui.selectable(sun.name, self.selected_object_state == ("Suns", i))
@@ -302,7 +308,7 @@ class ObjectsViewer:
 
                     r = self.selected_object.rotation
                     euler = cast("glm.vec3", glm.degrees(glm.eulerAngles(r)))
-                    _, new_rot = imgui.drag_float3("rotation", euler.to_list(), v_speed=45, v_min=-360, v_max=360)
+                    _, new_rot = imgui.drag_float3("rotation", euler.to_list(), v_speed=1, v_min=-360, v_max=360)
                     self.selected_object.rotation = glm.quat(glm.radians(glm.vec3(new_rot)))
 
                     s = self.selected_object.scale
@@ -329,9 +335,35 @@ class ObjectsViewer:
                         _, self.selected_object.radius = imgui.slider_float(
                             "radius",
                             self.selected_object.radius,
-                            v_min=0.1,
+                            v_min=0.05,
                             v_max=20,
-                            format="%.1f",
+                            format="%.2f",
+                            flags=imgui.SliderFlags_.logarithmic,  # type:ignore[arg-type]
+                        )
+
+                    if isinstance(self.selected_object, Sun):
+                        imgui.separator_text("Sun")
+
+                        _, new_dir = imgui.drag_float3(
+                            "direction",
+                            self.selected_object.direction.to_list(),
+                            v_speed=0.1,
+                            v_min=-1,
+                            v_max=1,
+                            format="%.2f",
+                        )
+                        self.selected_object.direction = glm.vec3(new_dir)
+
+                        _, new_col = imgui.color_edit3("color", self.selected_object.color.to_list())
+                        self.selected_object.color = glm.vec3(new_col)
+
+                        _, self.selected_object.radius = imgui.slider_float(
+                            "radius",
+                            self.selected_object.radius,
+                            v_min=0.05,
+                            v_max=4,
+                            format="%.2f",
+                            flags=imgui.SliderFlags_.logarithmic,  # type:ignore[arg-type]
                         )
 
                 else:
@@ -417,7 +449,14 @@ class ShaderViewer:
 
 
 class DebugView(ModernglWindowRenderer):
-    def __init__(self, window: WindowConfig, scene: Scene, textures: list[Texture], shaders: list[Program]) -> None:
+    def __init__(
+        self,
+        window: WindowConfig,
+        scene: Scene,
+        camera: Camera,
+        textures: list[Texture],
+        shaders: list[Program],
+    ) -> None:
         self.profiler = Profiler(window.ctx)
         imgui.create_context()
         implot.create_context()
@@ -429,6 +468,8 @@ class DebugView(ModernglWindowRenderer):
         self.objects_viewer = ObjectsViewer(scene)
         self.shader_viewer = ShaderViewer(shaders)
         self.settings = SettingsViewer()
+        self.scene = scene
+        self.camera = camera
 
         io = imgui.get_io()
         io.config_flags |= imgui.ConfigFlags_.nav_enable_keyboard  # type:ignore[operator]
@@ -437,7 +478,25 @@ class DebugView(ModernglWindowRenderer):
     def is_frame_counter_stopped(self) -> bool:
         return self.settings.stop_frame_counter
 
+    def find_selected_object(self, screen_coord: ImVec2) -> VoxelObject | None:
+        def cam_distance(obj: VoxelObject) -> float:
+            return glm.distance2(obj.center, self.camera.position)
+
+        ndc = ((glm.vec2(screen_coord.x, screen_coord.y) / glm.vec2(SCREEN_DIMENSIONS)) - 0.5) * 2.0
+        camera_ray = compute_camera_ray(ndc, self.camera.projection.matrix, self.camera.matrix)
+        for obj in sorted(self.scene.voxel_objects, key=cam_distance):
+            if glm.dot(obj.center - camera_ray.origin, camera_ray.direction) <= 0:
+                continue
+            if ray_sphere_intersection(camera_ray, obj.bounding_sphere):
+                return obj
+        return None
+
     def render_debug(self, global_frame_counter: int, frametime: float) -> None:
+        io = imgui.get_io()
+        if io.mouse_clicked[0] and not io.want_capture_mouse:
+            obj = self.find_selected_object(io.mouse_pos)
+            if obj:
+                self.objects_viewer.selected_object_state = ("Voxos", self.scene.voxel_objects.index(obj))
         imgui.new_frame()
         self.texture_viewer.render()
         self.objects_viewer.render()

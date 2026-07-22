@@ -64,7 +64,7 @@ class VoxoWindow(CameraWindow):
     window_size = SCREEN_DIMENSIONS
     title = "voxo"
     resource_dir = Path("resources").resolve()
-    vsync = True
+    vsync = False
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -73,7 +73,7 @@ class VoxoWindow(CameraWindow):
         self.frame_counter = 0
         self.global_frame_counter = 0
         self.debug = False
-        self.camera.position = glm.vec3(CENTER)
+        self.camera.position = glm.vec3(CENTER) + glm.vec3(0, 100, 0)
         self.scene = Scene(self.ctx)
 
         self.last_frame_projview: Mat4 = cast("Mat4", self.camera.projection.matrix @ self.camera.matrix)
@@ -88,6 +88,7 @@ class VoxoWindow(CameraWindow):
         self.debugger = DebugView(
             self,
             self.scene,
+            self.camera,
             [
                 *self.gbuffer.textures,
                 *self.voxel_lighting.textures,
@@ -154,16 +155,18 @@ class VoxoWindow(CameraWindow):
 
         # Fill GBuffer
         with self.profile("fill gbuffer"):
+            visible_objects = self.scene.visible_objects(self.camera)
             gbuffer = self.gbuffer.current
             gbuffer.start()
             self.voxel_renderer.render_objects(
                 self.camera,
-                self.scene.voxel_objects,
-                self.scene.last_frame_transforms,
+                visible_objects,
                 self.last_frame_projview,
+                self.gbuffer.current.linear_depth,
                 self.frame_counter,
             )
-            self.scene.update_lastframe_transforms()
+            for obj in self.scene.voxel_objects:
+                obj.last_frame_transform = obj.transform
 
         with self.profile("smooth normals"):
             gbuffer.smooth_normals(self.camera)

@@ -41,6 +41,9 @@ class GlobalOccluder:
             create_mip_maps=True,
         )
         self.occluder_texture.filter = moderngl.NEAREST_MIPMAP_NEAREST, moderngl.NEAREST
+        self.occluder_texture.repeat_x = False
+        self.occluder_texture.repeat_y = False
+        self.occluder_texture.repeat_z = False
         self.occluder_texture.label = "tex3d_global_occluder"
 
         self.occluder_volume = Object(geometry=geometry.cube(size=dimensions))
@@ -98,8 +101,8 @@ class VoxelRenderer:
         self,
         camera: Camera,
         voxel_objects: Sequence[VoxelObject],
-        prev_model_transforms: list[Mat4],
         prev_viewproj: Mat4,
+        linear_depth_texture: Texture,
         frame_counter: int,
     ) -> None:
         ctx = self.program.ctx
@@ -108,26 +111,25 @@ class VoxelRenderer:
         self.program["m_camera"].write(camera.matrix)
         self.program["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.program["uInvView"].write(glm.inverse(camera.matrix))
-        self.program["u_voxel_data"].value = 0
-        self.program["u_palette_data"].value = 1
         self.program["frame_counter"].value = frame_counter
 
-        def cam_distance(enum_obj: tuple[int, VoxelObject]) -> float:
-            _, obj = enum_obj
-            return glm.distance2(camera.position, obj.translation)
+        def cam_distance(obj: VoxelObject) -> float:
+            return glm.distance2(camera.position, obj.center)
 
-        ctx.enable_only(moderngl.DEPTH_TEST)
-        for i, voxel_object in sorted(enumerate(voxel_objects), key=cam_distance):
+        ctx.enable_only(moderngl.DEPTH_TEST | moderngl.CULL_FACE)
+        ctx.cull_face = "front"
+        for voxel_object in sorted(voxel_objects, key=cam_distance):
             if not voxel_object.visible:
                 continue
-            # TODO(david): use linear depth for Z-filter
-            prev_model = prev_model_transforms[i]
             self.program["m_model"].write(voxel_object.transform)
             self.program["m_model_inverse"].write(glm.inverse(voxel_object.transform))
-            self.program["m_prev_model"].write(prev_model)
+            self.program["m_prev_model"].write(voxel_object.last_frame_transform)
             voxel_object.voxel_texture.use(location=0)
             voxel_object.palette_texture.use(location=1)
+            linear_depth_texture.use(location=2)
             voxel_object.geometry.render(self.program)
+        ctx.cull_face = "back"
+        ctx.disable(moderngl.DEPTH_TEST | moderngl.CULL_FACE)
 
     @cached_property
     def shaders(self) -> list[Program]:
@@ -175,6 +177,7 @@ class VoxelLighting:
             if not sun.visible:
                 continue
             self.direct_lighting.render_sun(camera, gbuffer, voxel_texture, sun, frame_counter)
+        # TODO(david): enable front face culling
         for light in lights:
             if not light.visible:
                 continue
@@ -278,6 +281,7 @@ class VoxelDirectLighting:
         voxel_texture.use(location=3)
         self.random_vec2.use(location=4)
 
+        # TODO(david): use light geometry for rendering, also need to change attenuation in shader
         self.quad_fs.render(self.voxel_direct_light)
 
     def render_sun(

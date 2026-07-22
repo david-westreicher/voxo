@@ -1,4 +1,4 @@
-#version 400
+#version 430
 
 #if defined VERTEX_SHADER
 
@@ -20,10 +20,11 @@ void main() {
 #include programs/utils.glsl
 #line 22
 
+layout(binding = 0) uniform usampler3D u_voxel_data;
+layout(binding = 1) uniform sampler2D u_palette_data;
+layout(binding = 2) uniform sampler2D u_prev_linear_depth;
 uniform mat4 uInvView;
 uniform mat4 uInvProjection;
-uniform usampler3D u_voxel_data;
-uniform sampler2D u_palette_data;
 uniform mat4 m_model;
 uniform mat4 m_model_inverse;
 uniform mat4 m_camera;
@@ -74,6 +75,10 @@ void main() {
 
     float t;
     if (intersectAABB(local_ray, bbox, t)) {
+        float zbuffer_depth = texture(u_prev_linear_depth, screen_uv).r;
+        if (t >= zbuffer_depth) {
+            discard;
+        }
         vec3 bbox_hit = local_ray.origin + (t - 0.01) * local_ray.direction;
         Ray bbox_ray = Ray(bbox_hit, local_ray.direction);
         Hit hit = dda(bbox_ray, MAX_STEPS, u_voxel_data, bbox);
