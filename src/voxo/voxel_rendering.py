@@ -116,7 +116,8 @@ class VoxelRenderer:
         def cam_distance(obj: VoxelObject) -> float:
             return glm.distance2(camera.position, obj.center)
 
-        ctx.enable_only(moderngl.DEPTH_TEST)
+        ctx.enable_only(moderngl.DEPTH_TEST | moderngl.CULL_FACE)
+        ctx.cull_face = "front"
         for voxel_object in sorted(voxel_objects, key=cam_distance):
             if not voxel_object.visible:
                 continue
@@ -127,6 +128,8 @@ class VoxelRenderer:
             voxel_object.palette_texture.use(location=1)
             linear_depth_texture.use(location=2)
             voxel_object.geometry.render(self.program)
+        ctx.cull_face = "back"
+        ctx.disable(moderngl.DEPTH_TEST | moderngl.CULL_FACE)
 
     @cached_property
     def shaders(self) -> list[Program]:
