@@ -113,6 +113,7 @@ void main() {
     Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, 0, 0.0);
     float depth = texture(u_depth, uv).r;
     if (depth == 1.0) {
+        out_irradiance = vec3(0.0);
         return;
     }
     vec3 normal = texture(u_normal, uv).rgb;

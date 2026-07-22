@@ -177,6 +177,7 @@ class VoxelLighting:
             if not sun.visible:
                 continue
             self.direct_lighting.render_sun(camera, gbuffer, voxel_texture, sun, frame_counter)
+        # TODO(david): enable front face culling
         for light in lights:
             if not light.visible:
                 continue
@@ -280,6 +281,7 @@ class VoxelDirectLighting:
         voxel_texture.use(location=3)
         self.random_vec2.use(location=4)
 
+        # TODO(david): use light geometry for rendering, also need to change attenuation in shader
         self.quad_fs.render(self.voxel_direct_light)
 
     def render_sun(
