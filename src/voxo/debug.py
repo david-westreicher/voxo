@@ -16,7 +16,7 @@ from moderngl_window.scene import Camera
 from pyglm import glm
 
 from .constants import SCREEN_DIMENSIONS
-from .model import parse_model
+from .model import parse_text_model
 from .objects import Light, Object, Sun, VoxelObject
 from .scene import Scene
 from .utils import compute_camera_ray, ray_sphere_intersection
@@ -264,7 +264,7 @@ class ObjectsViewer:
             elif item.suffix.lower() == ".txt":
                 clicked, _ = imgui.selectable(str(item.name), p_selected=False)
                 if clicked:
-                    new_obj = VoxelObject(model=parse_model(item))
+                    new_obj = VoxelObject(model=parse_text_model(item))
                     self.scene.add_voxel_object(new_obj)
                     self.selected_object_state = ("Voxos", self.scene.voxel_objects.index(new_obj))
 

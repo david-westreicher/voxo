@@ -72,7 +72,7 @@ vec3 sample_disk_light(vec3 lightPos, vec3 lightNormal, float radius, vec2 xi) {
 }
 
 vec3 compute_direct_light(vec3 pos, vec3 normal, vec3 light_pos) {
-    vec3 ray_start = pos + normal * 0.1;
+    vec3 ray_start = pos + normal * 1.0;
 
     // Shadow ray
     vec3 light_center = sample_disk_light(light_pos, normalize(pos - light_pos), lightRadius, generate_random_vec2(light_rand_state));
@@ -93,7 +93,7 @@ vec3 compute_direct_light(vec3 pos, vec3 normal, vec3 light_pos) {
 }
 
 vec3 compute_direct_sun(vec3 pos, vec3 normal, vec3 sun_direction) {
-    vec3 ray_start = pos + normal * 0.1;
+    vec3 ray_start = pos + normal * 1.0;
 
     // Shadow ray
     vec3 L = normalize(sample_disk_light(sun_direction, normalize(sun_direction), lightRadius, generate_random_vec2(light_rand_state))); // direction to light

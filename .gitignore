@@ -4,3 +4,4 @@ src/voxo.egg-info/
 build
 models/
 imgui.ini
+resources/levels/*

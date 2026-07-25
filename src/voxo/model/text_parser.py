@@ -1,19 +1,14 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-VoxelInfo = tuple[int, int, int, int]  # x, y, z, color index
+from .model import Model, VoxelInfo, generate_palette_data, generate_voxel_data
 
 
 @dataclass
-class Model:
+class TextModel:
     path: Path
-    palette: list[tuple[int, int, int]]
     voxels: list[VoxelInfo]
     dimensions: tuple[int, int, int] = (0, 0, 0)
-
-    @property
-    def name(self) -> str:
-        return self.path.with_suffix("").name
 
     @property
     def opengl_dimensions(self) -> tuple[int, int, int]:
@@ -21,7 +16,6 @@ class Model:
         return (w, d, h)
 
     def __post_init__(self) -> None:
-        assert len(self.palette) <= 256, "Palette can have at most 256 colors"
         (min_x, min_y, min_z), _ = self.get_min_max(self.voxels)
         self.voxels = [(x - min_x, y - min_y, z - min_z, color_index) for x, y, z, color_index in self.voxels]
         _, (w, h, d) = self.get_min_max(self.voxels)
@@ -36,39 +30,12 @@ class Model:
         max_z = max(z for _, _, z, _ in voxels)
         return (min_x, min_y, min_z), (max_x, max_y, max_z)
 
-    def generate_voxel_data(self) -> bytes:
-        voxel_map = {(x, y, z): col + 1 for x, y, z, col in self.voxels}
-        voxel_data = []
-        max_x, max_y, max_z = self.dimensions
-        for y in reversed(range(max_y)):
-            for z in range(max_z):
-                for x in range(max_x):
-                    col = voxel_map.get((x, y, z), 0)
-                    voxel_data.append(col)
-        return bytes(voxel_data)
-
-    def generate_palette_data(self) -> bytes:
-        palette_data = [0] * 3
-        for r, g, b in self.palette:
-            palette_data.extend([r, g, b])
-        return bytes(palette_data)
-
-    def serialize(self, model_path: Path) -> None:
-        with model_path.open("wb") as f:
-            for dim in self.dimensions:
-                f.write(dim.to_bytes(4, "big"))
-            f.write(len(self.palette).to_bytes(1, "big"))
-            for col in self.palette:
-                for channel in col:
-                    f.write(channel.to_bytes(1, "big"))
-            f.write(self.generate_voxel_data())
-
 
 def convert_hex_to_rgb(hex_col: int) -> tuple[int, int, int]:
     return ((hex_col >> 16) & 0xFF, (hex_col >> 8) & 0xFF, hex_col & 0xFF)
 
 
-def parse_model(model_path: Path) -> Model:
+def parse_text_model(model_path: Path) -> Model:
     voxels: list[VoxelInfo] = []
     with model_path.open("r") as f:
         for line in f:
@@ -78,5 +45,11 @@ def parse_model(model_path: Path) -> Model:
             voxels.append((x, y, z, col))
     hex_palette = sorted({col for _, _, _, col in voxels})
     palette = sorted(convert_hex_to_rgb(col) for col in hex_palette)
-    voxels = [(x, y, z, hex_palette.index(col)) for x, y, z, col in voxels]
-    return Model(path=model_path, palette=palette, voxels=voxels)
+    voxels = [(x, y, z, hex_palette.index(col) + 1) for x, y, z, col in voxels]
+    text_model = TextModel(path=model_path, voxels=voxels)
+    return Model(
+        model_path.with_suffix("").name,
+        text_model.opengl_dimensions,
+        generate_voxel_data(text_model.dimensions, text_model.voxels),
+        generate_palette_data(palette),
+    )

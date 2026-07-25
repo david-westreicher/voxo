@@ -6,9 +6,8 @@ from moderngl import Context
 from moderngl_window.scene.camera import Camera
 from pyglm import glm
 
-from .model import parse_model
-from .objects import Light, Sun, VoxelObject
-from .utils import frustum_cull_spheres
+from .objects import Light, Sun, VoxelObject, World
+from .utils import chunk_iters, frustum_cull_spheres
 
 
 class Scene:
@@ -19,29 +18,7 @@ class Scene:
         self.ctx = ctx
 
         self.sun = Sun()
-        plane_model = parse_model(Path("./resources/models/plane.txt"))
-        self.corner_left = self.add_voxel_object(VoxelObject(model=parse_model(Path("./resources/models/corner.txt"))))
-        self.corner_right = self.add_voxel_object(VoxelObject(model=parse_model(Path("./resources/models/corner.txt"))))
-        self.corner_front = self.add_voxel_object(VoxelObject(model=parse_model(Path("./resources/models/corner.txt"))))
-        self.plane_1 = self.add_voxel_object(VoxelObject(model=plane_model))
-        self.plane_2 = self.add_voxel_object(VoxelObject(model=plane_model))
-        self.plane_3 = self.add_voxel_object(VoxelObject(model=plane_model))
-        self.plane_4 = self.add_voxel_object(VoxelObject(model=plane_model))
-        self.truck_1 = self.add_voxel_object(VoxelObject(model=parse_model(Path("./resources/models/truck.txt"))))
-        self.dwarf = self.add_voxel_object(VoxelObject(model=parse_model(Path("./resources/models/treehouse.txt"))))
-        self.light_1 = self.add_light(Light(1.0, glm.vec3(1.0, 0.8, 0.7), intensity=1600.0))
-
-        self.corner_left.translation = glm.vec3(64, 0, 64)
-        self.corner_right.translation = glm.vec3(256 + 64, 0, 64)
-        self.corner_right.rotation = glm.angleAxis(glm.pi() * 1.5, glm.vec3(0, 1, 0))
-        self.corner_front.rotation = glm.angleAxis(glm.pi(), glm.vec3(0, 1, 0))
-        self.corner_front.translation = glm.vec3(256 + 64, 0, 128 + 64)
-        self.plane_1.translation = glm.vec3(64 + 1, 0, 64 + 127)
-        self.plane_2.translation = glm.vec3(64 + 128 - 1, 0, 64 + 127)
-        self.plane_3.translation = glm.vec3(64 + 1, 70, 64)
-        self.plane_4.translation = glm.vec3(64 + 128, 70, 64)
-        self.truck_1.translation = glm.vec3(95, 1, 60)
-        self.dwarf.translation = glm.vec3(128, 1, 190)
+        self.object_generator = chunk_iters(World().read(Path("./resources/levels/hub_carib_sandbox.lvl")), 100)
 
     def add_voxel_object(self, voxel_object: VoxelObject) -> VoxelObject:
         self.voxel_objects.append(voxel_object)
@@ -57,8 +34,12 @@ class Scene:
         return [self.sun]
 
     def update(self, time: float) -> None:
+        objs = next(self.object_generator, None)
+        if objs is not None:
+            for obj in objs:
+                self.add_voxel_object(obj)
+
         self.sun.direction = glm.normalize(glm.vec3(glm.sin(time), 1, glm.cos(time)))
-        self.light_1.translation = glm.vec3(140, 56, 180) + glm.rotateY(glm.vec3(10, 0, 0), time)
 
     def visible_objects(self, camera: Camera) -> list[VoxelObject]:
         bounding_spheres = [obj.bounding_sphere for obj in self.voxel_objects]

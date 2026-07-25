@@ -11,9 +11,6 @@ from pyglm import glm
 from .constants import GLOBAL_DEFINE, GLOBAL_OCCLUDER_DIMENSIONS
 from .objects import Object, Sun
 
-GL_RGB10_A2 = 0x8059
-GL_DEPTH_COMPONENT32F = 0x8CAC
-
 
 class GBuffer:
     def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int]) -> None:  # type: ignore[name-defined]

@@ -5,10 +5,19 @@ from typing import TYPE_CHECKING, Any, cast
 
 import moderngl_window
 from moderngl_window.context.base import KeyModifiers
+from moderngl_window.scene import Camera
 from moderngl_window.scene.camera import KeyboardCamera
 from pyglm import glm
 
-from .constants import ASPECT_RATIO, CENTER, GLOBAL_OCCLUDER_DIMENSIONS, SCREEN_DIMENSIONS
+from .constants import (
+    ASPECT_RATIO,
+    CAMERA_FAR,
+    CAMERA_FOV,
+    CAMERA_NEAR,
+    CENTER,
+    GLOBAL_OCCLUDER_DIMENSIONS,
+    SCREEN_DIMENSIONS,
+)
 from .debug import DebugView
 from .rendering import GBufferDebug, GBufferPingPong, PostProcessing, WireFrameRenderer
 from .scene import Scene
@@ -23,9 +32,15 @@ class CameraWindow(moderngl_window.WindowConfig):  # type: ignore[misc, name-def
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self.camera = KeyboardCamera(self.wnd.keys, aspect_ratio=ASPECT_RATIO, near=1.0, far=1000.0, fov=74)
+        self.camera = KeyboardCamera(
+            self.wnd.keys,
+            aspect_ratio=ASPECT_RATIO,
+            near=CAMERA_NEAR,
+            far=CAMERA_FAR,
+            fov=CAMERA_FOV,
+        )
         self.camera.mouse_sensitivity = 0.05
-        self.camera.velocity = 50.0
+        self.camera.velocity = 500.0
         self.camera_enabled = True
 
     def on_key_event(self, key: Any, action: Any, modifiers: KeyModifiers) -> None:
@@ -36,7 +51,7 @@ class CameraWindow(moderngl_window.WindowConfig):  # type: ignore[misc, name-def
 
         if action == keys.ACTION_PRESS:
             if key == keys.LEFT_SHIFT:
-                self.camera.velocity = 1
+                self.camera.velocity = 5
             if key == keys.C:
                 self.camera_enabled = not self.camera_enabled
                 self.wnd.mouse_exclusivity = self.camera_enabled
@@ -45,7 +60,7 @@ class CameraWindow(moderngl_window.WindowConfig):  # type: ignore[misc, name-def
                 self.timer.toggle_pause()
 
         if action == keys.ACTION_RELEASE and key == keys.LEFT_SHIFT:
-            self.camera.velocity = 50.0
+            self.camera.velocity = 500.0
 
     def on_mouse_position_event(self, x: int, y: int, dx: int, dy: int) -> None:  # noqa: ARG002
         if self.camera_enabled:
@@ -73,8 +88,8 @@ class VoxoWindow(CameraWindow):
         self.frame_counter = 0
         self.global_frame_counter = 0
         self.debug = False
+        self.synced_camera = Camera(fov=CAMERA_FOV, aspect_ratio=ASPECT_RATIO, near=CAMERA_NEAR, far=CAMERA_FAR)
         self.camera.position = glm.vec3(CENTER) + glm.vec3(0, 100, 0)
-        self.scene = Scene(self.ctx)
 
         self.last_frame_projview: Mat4 = cast("Mat4", self.camera.projection.matrix @ self.camera.matrix)
         self.global_occluder = GlobalOccluder(self, GLOBAL_OCCLUDER_DIMENSIONS)
@@ -85,6 +100,7 @@ class VoxoWindow(CameraWindow):
         self.wireframe_box = WireFrameRenderer(self)
         self.post_processing = PostProcessing(self, SCREEN_DIMENSIONS)
 
+        self.scene = Scene(self.ctx)
         self.debugger = DebugView(
             self,
             self.scene,
@@ -138,7 +154,17 @@ class VoxoWindow(CameraWindow):
         with self.ctx.debug_scope(name), self.debugger.profiler.query(name, self.frame_counter):
             yield
 
+    def sync_camera(self, camera: Camera) -> None:
+        _ = camera.matrix
+        _ = camera.projection.matrix
+        self.synced_camera.position.x = camera.position.x
+        self.synced_camera.position.y = camera.position.y
+        self.synced_camera.position.z = camera.position.z
+        self.synced_camera.yaw = camera.yaw
+        self.synced_camera.pitch = camera.pitch
+
     def on_render(self, time: float, frametime: float) -> None:
+        self.sync_camera(self.camera)
         self.time = time
         self.global_frame_counter += 1
         self.frame_counter += 0 if self.debugger.is_frame_counter_stopped else 1
@@ -147,19 +173,20 @@ class VoxoWindow(CameraWindow):
                 self.scene.update(time)
 
                 # Update Occluder
-                self.global_occluder.clear()
                 for voxel_object in self.scene.voxel_objects:
-                    if voxel_object.visible:
+                    if voxel_object.visible and voxel_object.is_dirty:
+                        # TODO(david): clear dirty objects
                         self.global_occluder.blit_object(voxel_object)
+                        voxel_object.is_dirty = False
                 self.global_occluder.update_mipmaps()
 
         # Fill GBuffer
         with self.profile("fill gbuffer"):
-            visible_objects = self.scene.visible_objects(self.camera)
+            visible_objects = self.scene.visible_objects(self.synced_camera)
             gbuffer = self.gbuffer.current
             gbuffer.start()
             self.voxel_renderer.render_objects(
-                self.camera,
+                self.synced_camera,
                 visible_objects,
                 self.last_frame_projview,
                 self.gbuffer.current.linear_depth,
@@ -169,12 +196,12 @@ class VoxoWindow(CameraWindow):
                 obj.last_frame_transform = obj.transform
 
         with self.profile("smooth normals"):
-            gbuffer.smooth_normals(self.camera)
+            gbuffer.smooth_normals(self.synced_camera)
 
         # Compute lighting
         with self.profile("compute lighting"):
             self.voxel_lighting.render(
-                self.camera,
+                self.synced_camera,
                 gbuffer,
                 self.global_occluder.occluder_texture,
                 self.scene.lights,
@@ -185,8 +212,9 @@ class VoxoWindow(CameraWindow):
         # Post processing
         with self.profile("post processing"):
             self.post_processing.render(
-                camera=self.camera,
-                camera_moved=self.last_frame_projview != (self.camera.projection.matrix @ self.camera.matrix),
+                camera=self.synced_camera,
+                camera_moved=self.last_frame_projview
+                != (self.synced_camera.projection.matrix @ self.synced_camera.matrix),
                 suns=self.scene.suns,
                 irradiance=self.voxel_lighting.irradiance_texture,
                 specular=self.voxel_lighting.specular_texture,
@@ -198,12 +226,12 @@ class VoxoWindow(CameraWindow):
         # Render framebuffer onto screen
         self.ctx.screen.use()
         self.gbuffer_debug.render(gbuffer, final_hdr_texture=self.post_processing.final_texture, debug=self.debug)
-        self.wireframe_box.render(self.camera, [*self.scene.lights])
+        self.wireframe_box.render(self.synced_camera, [*self.scene.lights])
         if self.debug:
-            self.global_occluder.render_debug(self.camera)
-            self.wireframe_box.render(self.camera, self.scene.voxel_objects)
-            self.wireframe_box.render(self.camera, [*self.scene.lights, self.global_occluder.occluder_volume])
+            self.global_occluder.render_debug(self.synced_camera)
+            self.wireframe_box.render(self.synced_camera, self.scene.voxel_objects)
+            self.wireframe_box.render(self.synced_camera, [*self.scene.lights, self.global_occluder.occluder_volume])
         if not self.camera_enabled:
             self.debugger.render_debug(self.global_frame_counter, frametime)
         self.gbuffer.swap()
-        self.last_frame_projview = cast("Mat4", self.camera.projection.matrix @ self.camera.matrix)
+        self.last_frame_projview = cast("Mat4", self.synced_camera.projection.matrix @ self.synced_camera.matrix)
