@@ -44,33 +44,57 @@ class Model:
 
 @dataclass
 class Material:
-    reflectivity: float
-    roughness: float
-    metallic: float
-    emissive: float
+    reflectivity: float = 0.0
+    roughness: float = 0.0
+    metallic: float = 0.0
+    emissive: float = 0.0
+    transparency: float = 0.0
+
+    def to_tuple(self) -> tuple[float, float, float, float]:
+        return (
+            self.reflectivity,
+            self.roughness,
+            self.metallic,
+            self.emissive or -self.transparency or 0.0,
+        )
 
 
-def generate_voxel_data(dimensions: tuple[int, int, int], voxels: list[VoxelInfo]) -> bytes:
-    voxel_map = {(x, y, z): col for x, y, z, col in voxels}
+def generate_model(
+    name: str,
+    dimensions: tuple[int, int, int],
+    voxels: list[VoxelInfo],
+    palette: list[tuple[int, int, int]],
+    materials: list[Material],
+) -> Model:
+    assert len(palette) == len(materials)
+    used_palette_indices = sorted({col for _, _, _, col in voxels})
+    assert 0 not in used_palette_indices
+    palette_indirection_map = {
+        original_palette_index: i + 1 for i, original_palette_index in enumerate(used_palette_indices)
+    }
+    palette_indirection_map[0] = 0
+
     voxel_data = []
-    max_x, max_y, max_z = dimensions
-    for y in reversed(range(max_y)):
-        for z in range(max_z):
-            for x in range(max_x):
-                col = voxel_map.get((x, y, z), 0)
+    voxel_map = {(x, y, z): col for x, y, z, col in voxels}
+    w, h, d = dimensions
+    for y in reversed(range(h)):
+        for z in range(d):
+            for x in range(w):
+                col = palette_indirection_map[voxel_map.get((x, y, z), 0)]
                 voxel_data.append(col)
-    return bytes(voxel_data)
 
-
-def generate_palette_data(palette: list[tuple[int, int, int]]) -> bytes:
     palette_data = [0] * 3
-    for r, g, b in palette:
-        palette_data.extend([r, g, b])
-    return bytes(palette_data)
-
-
-def generate_material_data(materials: list[Material]) -> bytes:
     material_data = [0.0] * 4
-    for mat in materials:
-        material_data.extend([mat.reflectivity, mat.roughness, mat.metallic, mat.emissive])
-    return np.array(material_data, dtype=np.float16).tobytes()
+    for i in used_palette_indices:
+        palette_data.extend(palette[i - 1])
+        mat = materials[i - 1]
+        material_data.extend(mat.to_tuple())
+
+    opengl_dimensions = (w, d, h)
+    return Model(
+        name=name,
+        opengl_dimensions=opengl_dimensions,
+        voxel_data=bytes(voxel_data),
+        palette_data=bytes(palette_data),
+        material_data=np.array(material_data, dtype=np.float16).tobytes(),
+    )

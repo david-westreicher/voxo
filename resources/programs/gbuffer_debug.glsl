@@ -22,7 +22,7 @@ uniform sampler2D u_motion_vectors;
 uniform sampler2D u_lighting;
 uniform bool full;
 const float exposure = 1.0;
-const float gamma = 2.4;
+const float gamma = 0.8;
 
 in vec2 uv;
 
@@ -75,7 +75,7 @@ void main() {
     }
     if (full) {
         fragColor = vec4(texture(u_lighting, uv).rgb, 1.0);
-        fragColor = vec4(tonemap(texture(u_lighting, uv).rgb), 1.0);
+        fragColor = vec4(lumaBasedReinhardToneMapping(texture(u_lighting, uv).rgb), 1.0);
     } else {
         fragColor = vec4(color, 1.0);
     }

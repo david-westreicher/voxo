@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from .model import Material, Model, VoxelInfo, generate_material_data, generate_palette_data, generate_voxel_data
+from .model import Material, Model, VoxelInfo, generate_model
 
 
 @dataclass
@@ -45,13 +45,13 @@ def parse_text_model(model_path: Path) -> Model:
             voxels.append((x, y, z, col))
     hex_palette = sorted({col for _, _, _, col in voxels})
     palette = sorted(convert_hex_to_rgb(col) for col in hex_palette)
-    material = [Material(reflectivity=0.0, roughness=0.0, metallic=0.0, emissive=0.0)] * len(palette)
+    materials = [Material(reflectivity=0.0, roughness=0.0, metallic=0.0, emissive=0.0)] * len(palette)
     voxels = [(x, y, z, hex_palette.index(col) + 1) for x, y, z, col in voxels]
     text_model = TextModel(path=model_path, voxels=voxels)
-    return Model(
-        model_path.with_suffix("").name,
-        text_model.opengl_dimensions,
-        generate_voxel_data(text_model.dimensions, text_model.voxels),
-        generate_palette_data(palette),
-        generate_material_data(material),
+    return generate_model(
+        name=model_path.with_suffix("").name,
+        dimensions=text_model.dimensions,
+        voxels=text_model.voxels,
+        palette=palette,
+        materials=materials,
     )

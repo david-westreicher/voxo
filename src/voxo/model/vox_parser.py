@@ -7,13 +7,7 @@ from typing import BinaryIO, cast
 from pyglm import glm
 
 from .model import Material as ModelMaterial
-from .model import (
-    Model,
-    VoxelInfo,
-    generate_material_data,
-    generate_palette_data,
-    generate_voxel_data,
-)
+from .model import Model, VoxelInfo, generate_model
 
 
 @dataclass
@@ -355,6 +349,7 @@ class VoxModel:
                 roughness=mat.roughness,
                 metallic=mat.metallic,
                 emissive=mat.emission * mat.flux,
+                transparency=mat.alpha,
             )
             for mat in self.materials
         ]
@@ -363,12 +358,12 @@ class VoxModel:
             assert 0.0 <= mat.roughness <= 1.0, mat.roughness
             assert 0.0 <= mat.metallic <= 1.0, mat.metallic
             assert 0.0 <= mat.emissive <= 400.0, mat.emissive
-        return Model(
-            self.shape_name,
-            self.opengl_dimensions,
-            generate_voxel_data(self.dimensions, self.voxels),
-            generate_palette_data(self.palette),
-            generate_material_data(converted_materials),
+        return generate_model(
+            name=self.shape_name,
+            dimensions=self.dimensions,
+            voxels=self.voxels,
+            palette=self.palette,
+            materials=converted_materials,
         )
 
 
