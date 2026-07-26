@@ -29,14 +29,14 @@ uniform int frame_counter;
 layout(binding = 0) uniform sampler2D u_normal;
 layout(binding = 1) uniform sampler2D u_depth;
 layout(binding = 2) uniform sampler2D u_linear_depth;
-layout(binding = 3) uniform usampler3D u_global_occluder;
-layout(binding = 4) uniform sampler2DArray u_stbn_unitvec3;
+layout(binding = 3) uniform sampler2D u_material;
+layout(binding = 4) uniform usampler3D u_global_occluder;
+layout(binding = 5) uniform sampler2DArray u_stbn_unitvec3;
 
 layout(location = 0) out vec3 out_specular;
 
 const int MAX_SPECULAR_SAMPLES = 1;
 const int MAX_SPECULAR_DISTANCE = 400;
-const float ROUGHNESS = 0.2;
 
 uint rnd_seed = uint(gl_FragCoord.x) + uint(gl_FragCoord.y) * 4097U + uint(frame_counter);
 int normal_rand_state = int(rnd_seed) % 64;
@@ -49,14 +49,14 @@ vec3 reflect(vec3 I, vec3 N) {
     return I - 2.0 * dot(N, I) * N;
 }
 
-vec3 compute_specular_lighting(vec3 pos, vec3 normal) {
+vec3 compute_specular_lighting(vec3 pos, vec3 normal, float reflectivity, float roughness) {
     vec3 ray_start = pos + normal * 1.0;
 
     // Specular Lighting
     vec3 specular = vec3(0.0);
     for (int spec_sample = 0; spec_sample < MAX_SPECULAR_SAMPLES; spec_sample += 1) {
         vec3 reflection_vec = reflect(normalize(pos - camera_pos), normal);
-        vec3 random_normal = generate_random_stbn_unitvec3(u_stbn_unitvec3, normal_rand_state) * ROUGHNESS * ROUGHNESS;
+        vec3 random_normal = generate_random_stbn_unitvec3(u_stbn_unitvec3, normal_rand_state) * roughness;
         vec3 reflection_jittered = normalize(reflection_vec + random_normal);
         Ray occ_ray = Ray(ray_start, reflection_jittered);
         Hit occ_hit = sparse_raymarch(occ_ray, MAX_SPECULAR_DISTANCE, u_global_occluder, bbox, 16);
@@ -66,20 +66,21 @@ vec3 compute_specular_lighting(vec3 pos, vec3 normal) {
             // TODO(david): We could take a screen space sample here from the last frame's final texture, also use rejection
         }
     }
-    return specular * 0.1 / MAX_SPECULAR_SAMPLES;
+    return reflectivity * specular / MAX_SPECULAR_SAMPLES;
 }
 
 void main() {
     Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, 0, 0.0);
     float depth = texture(u_depth, uv).r;
-    if (depth == 1.0) {
+    vec2 reflectivity_roughness = texture(u_material, uv).rg;
+    float reflectivity = reflectivity_roughness.r;
+    float roughness = reflectivity_roughness.g * 0.3;
+    if (depth == 1.0 || reflectivity <= 0.0) {
         out_specular = vec3(0.0);
         return;
     }
     vec3 normal = texture(u_normal, uv).rgb;
     vec3 pos = camera_ray.origin + camera_ray.direction * linear_depth;
-    vec3 color = compute_specular_lighting(pos, normal);
-
-    out_specular = color;
+    out_specular = compute_specular_lighting(pos, normal, reflectivity_roughness.r, roughness);
 }
 #endif

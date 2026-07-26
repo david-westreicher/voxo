@@ -17,20 +17,22 @@ class GBuffer:
         self.albedo_texture = window.ctx.texture(size=size, components=3, dtype="f2")
         self.normal_texture = window.ctx.texture(size=size, components=3, dtype="f2")
         self.normal_texture.filter = moderngl.NEAREST, moderngl.NEAREST
-        self.smooth_normal_texture = window.ctx.texture(size=size, components=3, dtype="f2")
-        self.smooth_normal_texture.filter = moderngl.NEAREST, moderngl.NEAREST
         self.motion_vectors = window.ctx.texture(size=size, components=2, dtype="f2")
         # NOTE(david): internally uses GL_DEPTH_COMPONENT24 but we want GL_DEPTH_COMPONENT32F
         self.depth_texture = window.ctx.depth_texture(size=size)
         self.linear_depth = window.ctx.texture(size=size, components=1, dtype="f2")
         self.linear_depth.filter = moderngl.NEAREST, moderngl.NEAREST
-        # TODO(david): add material texture (roughness, metallic, emissive) RGB8 = nu1
+        self.material_texture = window.ctx.texture(size=size, components=4, dtype="f2")
+
+        self.smooth_normal_texture = window.ctx.texture(size=size, components=3, dtype="f2")
+        self.smooth_normal_texture.filter = moderngl.NEAREST, moderngl.NEAREST
 
         self.framebuffer = window.ctx.framebuffer(
             color_attachments=[
                 self.albedo_texture,
                 self.normal_texture,
                 self.linear_depth,
+                self.material_texture,
                 self.motion_vectors,
             ],
             depth_attachment=self.depth_texture,
@@ -44,21 +46,18 @@ class GBuffer:
         self.motion_vectors.label = f"tex2d_gbuffer_{pingpong}_motion_vectors"
         self.depth_texture.label = f"tex2d_gbuffer_{pingpong}_depth"
         self.linear_depth.label = f"tex2d_gbuffer_{pingpong}_linear_depth"
+        self.material_texture.label = f"tex2d_gbuffer_{pingpong}_material"
         self.framebuffer.label = f"framebuffer_gbuffer_{pingpong}"
 
     def start(self) -> None:
         # Clear depth and linear depth buffers
-        self.framebuffer.color_mask = [(val,) * 4 for val in [False, False, True, False]]
+        self.framebuffer.color_mask = [(val,) * 4 for val in [False, False, True, False, False]]
         self.framebuffer.clear(red=max(GLOBAL_OCCLUDER_DIMENSIONS) * 10.0, depth=1.0)
 
         ctx = self.framebuffer.ctx
         ctx.enable_only(moderngl.DEPTH_TEST)
         self.framebuffer.color_mask = [(True,) * 4] * len(self.framebuffer.color_attachments)
         self.framebuffer.use()
-        self.albedo_texture.use(location=0)
-        self.normal_texture.use(location=1)
-        self.linear_depth.use(location=2)
-        self.motion_vectors.use(location=3)
 
     def smooth_normals(self, camera: Camera) -> None:
         self.normal_smoother.render(self.normal_texture, self.linear_depth, camera)
@@ -71,6 +70,7 @@ class GBuffer:
             self.smooth_normal_texture,
             self.depth_texture,
             self.linear_depth,
+            self.material_texture,
             self.motion_vectors,
         ]
 
@@ -196,6 +196,7 @@ class PostProcessing:
         self.irradiance_taa_2.clean_texture.use(location=1)
         self.specular_taa.clean_texture.use(location=2)
         current_gbuffer.depth_texture.use(location=3)
+        current_gbuffer.material_texture.use(location=4)
         self.quad.render(self.postprocessing_program)
 
     @cached_property

@@ -140,6 +140,12 @@ class VoxelObject(Object):
         self._palette_texture.repeat_x = False
         self._palette_texture.repeat_y = False
 
+        material = self.model.material_data
+        self._material_texture = ctx.texture((len(material) // 8, 1), data=material, components=4, dtype="f2")
+        self._material_texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
+        self._material_texture.repeat_x = False
+        self._material_texture.repeat_y = False
+
     @property
     def center(self) -> glm.vec3:
         dim = glm.vec4(glm.vec3(self.model.opengl_dimensions) * 0.5, 1.0)  # type:ignore[call-overload]
@@ -161,6 +167,11 @@ class VoxelObject(Object):
     def palette_texture(self) -> Texture:
         assert self._palette_texture
         return self._palette_texture
+
+    @property
+    def material_texture(self) -> Texture:
+        assert self._material_texture
+        return self._material_texture
 
     @property
     def transform(self) -> Mat4:

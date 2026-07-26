@@ -2,6 +2,8 @@ import struct
 from dataclasses import dataclass
 from typing import BinaryIO
 
+import numpy as np
+
 VoxelInfo = tuple[int, int, int, int]  # x, y, z, color index
 
 
@@ -11,6 +13,7 @@ class Model:
     opengl_dimensions: tuple[int, int, int]
     voxel_data: bytes
     palette_data: bytes
+    material_data: bytes
 
     def serialize(self, f: BinaryIO) -> None:
         f.write(struct.pack("<III", *self.opengl_dimensions))
@@ -18,6 +21,9 @@ class Model:
         palette_data = self.palette_data
         f.write(struct.pack("<I", len(palette_data)))
         f.write(palette_data)
+        material_data = self.material_data
+        f.write(struct.pack("<I", len(material_data)))
+        f.write(material_data)
 
     @staticmethod
     def deserialize(f: BinaryIO, model_name: str) -> "Model":
@@ -25,12 +31,23 @@ class Model:
         voxel_data = f.read(w * h * d)
         palette_data_len, *_ = struct.unpack("<I", f.read(4))
         palette_data = f.read(palette_data_len)
+        material_data_len, *_ = struct.unpack("<I", f.read(4))
+        material_data = f.read(material_data_len)
         return Model(
             name=model_name,
             opengl_dimensions=(w, h, d),
             voxel_data=voxel_data,
             palette_data=palette_data,
+            material_data=material_data,
         )
+
+
+@dataclass
+class Material:
+    reflectivity: float
+    roughness: float
+    metallic: float
+    emissive: float
 
 
 def generate_voxel_data(dimensions: tuple[int, int, int], voxels: list[VoxelInfo]) -> bytes:
@@ -50,3 +67,10 @@ def generate_palette_data(palette: list[tuple[int, int, int]]) -> bytes:
     for r, g, b in palette:
         palette_data.extend([r, g, b])
     return bytes(palette_data)
+
+
+def generate_material_data(materials: list[Material]) -> bytes:
+    material_data = [0.0] * 4
+    for mat in materials:
+        material_data.extend([mat.reflectivity, mat.roughness, mat.metallic, mat.emissive])
+    return np.array(material_data, dtype=np.float16).tobytes()

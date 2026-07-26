@@ -251,9 +251,10 @@ def folder_structure(path: Path) -> list[Path]:
 class ObjectsViewer:
     MODEL_DIR = Path("./resources/models/")
 
-    def __init__(self, scene: Scene) -> None:
+    def __init__(self, scene: Scene, window: ModernglWindowRenderer) -> None:
         self.scene = scene
         self.selected_object_state: tuple[str, int] | None = None
+        self.window = window
 
     def draw_model_file_tree(self, path: Path) -> None:
         for item in folder_structure(path):
@@ -319,6 +320,12 @@ class ObjectsViewer:
                         imgui.separator_text("Dimensions")
                         dim = self.selected_object.model.opengl_dimensions
                         _, _ = imgui.drag_float3("##", list(dim), v_speed=0.0, v_min=-10, v_max=10, format="%.0f")
+                        imgui.separator_text("Palette")
+                        self.window.register_texture(self.selected_object.palette_texture)
+                        imgui.image(self.selected_object.palette_texture.glo, (512, 10))
+                        imgui.separator_text("Materials")
+                        self.window.register_texture(self.selected_object.material_texture)
+                        imgui.image(self.selected_object.material_texture.glo, (512, 10))
 
                     if isinstance(self.selected_object, Light):
                         imgui.separator_text("Light")
@@ -465,7 +472,7 @@ class DebugView(ModernglWindowRenderer):
             self.register_texture(texture)
         self.texture_viewer = TextureViewer(textures, window)
         self.register_texture(self.texture_viewer.preview_texture)
-        self.objects_viewer = ObjectsViewer(scene)
+        self.objects_viewer = ObjectsViewer(scene, self)
         self.shader_viewer = ShaderViewer(shaders)
         self.settings = SettingsViewer()
         self.scene = scene
