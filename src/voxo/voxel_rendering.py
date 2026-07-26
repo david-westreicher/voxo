@@ -102,7 +102,7 @@ class VoxelRenderer:
         camera: Camera,
         voxel_objects: Sequence[VoxelObject],
         prev_viewproj: Mat4,
-        linear_depth_texture: Texture,
+        prev_linear_depth_texture: Texture,
         frame_counter: int,
     ) -> None:
         ctx = self.program.ctx
@@ -126,7 +126,8 @@ class VoxelRenderer:
             self.program["m_prev_model"].write(voxel_object.last_frame_transform)
             voxel_object.voxel_texture.use(location=0)
             voxel_object.palette_texture.use(location=1)
-            linear_depth_texture.use(location=2)
+            voxel_object.material_texture.use(location=2)
+            prev_linear_depth_texture.use(location=3)
             assert voxel_object.geometry
             voxel_object.geometry.render(self.program)
         ctx.cull_face = "back"
@@ -345,8 +346,9 @@ class VoxelSpecularLighting:
         gbuffer.smooth_normal_texture.use(location=0)
         gbuffer.depth_texture.use(location=1)
         gbuffer.linear_depth.use(location=2)
-        voxel_texture.use(location=3)
-        self.stbnormals.use(location=4)
+        gbuffer.material_texture.use(location=3)
+        voxel_texture.use(location=4)
+        self.stbnormals.use(location=5)
 
         self.quad_fs.render(self.voxel_specular_lighting)
 

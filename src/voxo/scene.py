@@ -18,7 +18,7 @@ class Scene:
         self.ctx = ctx
 
         self.sun = Sun()
-        self.object_generator = chunk_iters(World().read(Path("./resources/levels/hub_carib_sandbox.lvl")), 100)
+        self.object_generator = chunk_iters(World().read(Path("./resources/levels/marina_sandbox.lvl")), 100)
 
     def add_voxel_object(self, voxel_object: VoxelObject) -> VoxelObject:
         self.voxel_objects.append(voxel_object)

@@ -22,7 +22,8 @@ void main() {
 
 layout(binding = 0) uniform usampler3D u_voxel_data;
 layout(binding = 1) uniform sampler2D u_palette_data;
-layout(binding = 2) uniform sampler2D u_prev_linear_depth;
+layout(binding = 2) uniform sampler2D u_material_data;
+layout(binding = 3) uniform sampler2D u_prev_linear_depth;
 uniform mat4 uInvView;
 uniform mat4 uInvProjection;
 uniform mat4 m_model;
@@ -41,7 +42,8 @@ float inv_palette_size = 1.0 / (textureSize(u_palette_data, 0).r - 1.0);
 layout(location = 0) out vec3 u_albedo;
 layout(location = 1) out vec3 u_normal;
 layout(location = 2) out float u_linear_depth;
-layout(location = 3) out vec2 u_motion_vector;
+layout(location = 3) out vec4 u_material;
+layout(location = 4) out vec2 u_motion_vector;
 
 float worldPosToDepth(vec3 worldPos) {
     mat4 viewProj = m_proj * m_camera;
@@ -88,6 +90,7 @@ void main() {
             u_albedo = texture(u_palette_data, palette_coord).rgb;
             u_normal = normalize((m_model * vec4(hit.normal, 0.0)).xyz);
             u_linear_depth = distance(local_ray.origin, hit.position);
+            u_material = texture(u_material_data, palette_coord).rgba;
             u_motion_vector = compute_motion_vector(screen_uv, hit.position, m_prev_model, m_prev_viewproj);
             gl_FragDepth = worldPosToDepth(world_space_hit);
         } else {
