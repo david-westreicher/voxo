@@ -81,6 +81,6 @@ void main() {
     }
     vec3 normal = texture(u_normal, uv).rgb;
     vec3 pos = camera_ray.origin + camera_ray.direction * linear_depth;
-    out_specular = compute_specular_lighting(pos, normal, reflectivity_roughness.r, roughness);
+    out_specular = compute_specular_lighting(pos, normal, reflectivity, roughness);
 }
 #endif
