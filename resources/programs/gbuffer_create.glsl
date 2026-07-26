@@ -37,7 +37,7 @@ uniform int frame_counter;
 Box bbox = Box(vec3(0.0), vec3(textureSize(u_voxel_data, 0)));
 vec3 size = bbox.max - bbox.min;
 int MAX_STEPS = int(max(size.x, max(size.y, size.z))) * 3;
-float inv_palette_size = 1.0 / (textureSize(u_palette_data, 0).r - 1.0);
+float inv_palette_size = 1.0 / (textureSize(u_palette_data, 0).r);
 
 layout(location = 0) out vec3 u_albedo;
 layout(location = 1) out vec3 u_normal;
@@ -85,12 +85,17 @@ void main() {
         Ray bbox_ray = Ray(bbox_hit, local_ray.direction);
         Hit hit = dda(bbox_ray, MAX_STEPS, u_voxel_data, bbox);
         if (hit.hit) {
-            vec2 palette_coord = vec2(float(voxelmap(hit.voxel, bbox, u_voxel_data)) * inv_palette_size);
+            ivec2 palette_coord = ivec2(voxelmap(hit.voxel, bbox, u_voxel_data), 0);
             vec3 world_space_hit = (m_model * vec4(hit.position, 1.0)).xyz;
-            u_albedo = texture(u_palette_data, palette_coord).rgb;
+            vec4 material = texelFetch(u_material_data, palette_coord, 0).rgba;
+            if (material.a < 0.0) {
+                // TODO(david): glass rendering, maybe skip voxels in dda
+                discard;
+            }
+            u_albedo = texelFetch(u_palette_data, palette_coord, 0).rgb;
             u_normal = normalize((m_model * vec4(hit.normal, 0.0)).xyz);
             u_linear_depth = distance(local_ray.origin, hit.position);
-            u_material = texture(u_material_data, palette_coord).rgba;
+            u_material = material;
             u_motion_vector = compute_motion_vector(screen_uv, hit.position, m_prev_model, m_prev_viewproj);
             gl_FragDepth = worldPosToDepth(world_space_hit);
         } else {

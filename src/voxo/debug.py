@@ -251,10 +251,26 @@ def folder_structure(path: Path) -> list[Path]:
 class ObjectsViewer:
     MODEL_DIR = Path("./resources/models/")
 
-    def __init__(self, scene: Scene, window: ModernglWindowRenderer) -> None:
+    def __init__(self, scene: Scene, window: ModernglWindowRenderer, window_cfg: WindowConfig) -> None:
         self.scene = scene
         self.selected_object_state: tuple[str, int] | None = None
         self.window = window
+
+        self.material_texture = window.ctx.texture(size=(256, 5), components=4, dtype="f2")
+        self.material_texture.filter = moderngl.NEAREST, moderngl.NEAREST
+        self.framebuffer = window.ctx.framebuffer(color_attachments=[self.material_texture])
+        self.framebuffer.label = "framebuffer_debug_objects_viewer"
+        self.program = window_cfg.load_program("programs/debug_objects_viewer_material.glsl")
+        self.program.label = "prog_debug_objects_viewer_material"
+        self.quad = geometry.quad_fs(normals=False, uvs=True)
+        self.ctx = window.ctx
+
+    def render_into_material_texture(self, texture: Texture) -> None:
+        prev_fbo = self.ctx.fbo
+        self.framebuffer.use()
+        texture.use(location=0)
+        self.quad.render(self.program)
+        prev_fbo.use()
 
     def draw_model_file_tree(self, path: Path) -> None:
         for item in folder_structure(path):
@@ -299,6 +315,7 @@ class ObjectsViewer:
 
             if imgui.begin_child("properties"):
                 if self.selected_object:
+                    imgui.text(f"Name: {self.selected_object.name}")
                     _, self.selected_object.visible = imgui.checkbox("Visible", self.selected_object.visible)
                     imgui.separator_text("Transform")
                     t = self.selected_object.translation
@@ -325,7 +342,25 @@ class ObjectsViewer:
                         imgui.image(self.selected_object.palette_texture.glo, (512, 10))
                         imgui.separator_text("Materials")
                         self.window.register_texture(self.selected_object.material_texture)
-                        imgui.image(self.selected_object.material_texture.glo, (512, 10))
+                        self.render_into_material_texture(self.selected_object.material_texture)
+                        if imgui.begin_child("material_texture", size=(512, 0)):
+                            pos = imgui.get_cursor_screen_pos()
+                            imgui.image(self.material_texture.glo, (512, 80))
+                            draw_list = imgui.get_window_draw_list()
+                            for i in range(1, 5):
+                                y = pos.y + i * 16
+                                draw_list.add_line(
+                                    (pos.x, y), (pos.x + 512, y), imgui.get_color_u32((1.0, 1.0, 1.0, 1.0)), 1.0
+                                )
+                        imgui.end_child()
+                        imgui.same_line()
+                        if imgui.begin_child("material_description"):
+                            imgui.text("reflectivity")
+                            imgui.text("roughness")
+                            imgui.text("metallic")
+                            imgui.text("emissive")
+                            imgui.text("transparency")
+                        imgui.end_child()
 
                     if isinstance(self.selected_object, Light):
                         imgui.separator_text("Light")
@@ -472,7 +507,8 @@ class DebugView(ModernglWindowRenderer):
             self.register_texture(texture)
         self.texture_viewer = TextureViewer(textures, window)
         self.register_texture(self.texture_viewer.preview_texture)
-        self.objects_viewer = ObjectsViewer(scene, self)
+        self.objects_viewer = ObjectsViewer(scene, self, window)
+        self.register_texture(self.objects_viewer.material_texture)
         self.shader_viewer = ShaderViewer(shaders)
         self.settings = SettingsViewer()
         self.scene = scene
