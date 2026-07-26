@@ -127,6 +127,7 @@ class VoxelRenderer:
             voxel_object.voxel_texture.use(location=0)
             voxel_object.palette_texture.use(location=1)
             linear_depth_texture.use(location=2)
+            assert voxel_object.geometry
             voxel_object.geometry.render(self.program)
         ctx.cull_face = "back"
         ctx.disable(moderngl.DEPTH_TEST | moderngl.CULL_FACE)

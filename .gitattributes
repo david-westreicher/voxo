@@ -1,2 +1,4 @@
 resources/assets/* filter=lfs diff=lfs merge=lfs -text
 resources/models/* filter=lfs diff=lfs merge=lfs -text
+tests/test_data/ filter=lfs diff=lfs merge=lfs -text
+tests/test_data/* filter=lfs diff=lfs merge=lfs -text

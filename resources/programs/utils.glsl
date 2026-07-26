@@ -96,7 +96,7 @@ Hit sparse_raymarch(Ray ray, float max_distance, usampler3D occluder, Box bbox, 
     // Therefore we take the diagonal of the cube: diag = 4 * current_mip * sqrt(3)
     // which corresponds to a scale_factor of 2
     float t = 0;
-    float step_size = 0.5;
+    float step_size = 1.0;
     int current_mip = 0;
     Hit hit;
     while (t < max_distance) {

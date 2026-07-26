@@ -48,7 +48,7 @@ vec3 size = textureSize(u_global_occluder, 0);
 Box bbox = Box(vec3(0.0), vec3(size));
 
 vec3 compute_ambient_lighting(vec3 pos, vec3 normal, Pcg32State rnd) {
-    vec3 ray_start = pos + normal * 0.5;
+    vec3 ray_start = pos + normal * 1.0;
 
     // Ambient Lighting
     vec3 ambient = vec3(0.0);
@@ -56,7 +56,7 @@ vec3 compute_ambient_lighting(vec3 pos, vec3 normal, Pcg32State rnd) {
         vec3 jitter_point = (generate_random_stbn_vec3(u_stbn_vec3, jitter_pos_state) - 0.5);
         vec3 jitter = jitter_point - normal * dot(jitter_point, normal);
         Ray occ_ray = Ray(ray_start + jitter, generate_random_cosine_weighted_normal(normal, u_stbn_normals, normal_rand_state));
-        Hit occ_hit = sparse_raymarch(occ_ray, MAX_OCC_DISTANCE, u_global_occluder, bbox, 2);
+        Hit occ_hit = sparse_raymarch(occ_ray, MAX_OCC_DISTANCE, u_global_occluder, bbox, 8);
         if (!occ_hit.hit) {
             ambient += skyColor(occ_ray.direction, vec3(0, -1, 0));
         }

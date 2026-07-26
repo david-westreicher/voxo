@@ -19,6 +19,7 @@ pythonpath = ["src"]
 filterwarnings = ["ignore::PendingDeprecationWarning:moderngl_window.*"]
 
 [tool.mypy]
+mypy_path = ["src"]
 python_version = "3.13"
 files = ["src", "tests"]
 exclude = "^build/"
@@ -47,6 +48,7 @@ lint.ignore = [
     "DTZ001",  # Allow datetime without TZ
     "ANN401",  # Allow Any arguments (for instance for **kwargs)
     "PLR2004", # Allow magic values
+    "CPY001",  # No need for copyright
 ]
 
 [tool.ruff.lint.per-file-ignores]

@@ -1,5 +1,8 @@
+import struct
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import cast
+from pathlib import Path
+from typing import BinaryIO, cast
 
 import moderngl
 from moderngl import Context, Texture, Texture3D
@@ -8,6 +11,7 @@ from moderngl_window.opengl.vao import VAO
 from pyglm import glm
 from pyglm.glm import mat4x4 as Mat4  # noqa: N812  # noqa: N812
 from pyglm.glm import quat as Quat  # noqa: N812
+from pyglm.glm import vec3
 
 from .model import Model
 from .utils import Sphere
@@ -17,7 +21,7 @@ OBJECT_ID_COUNTER = 0
 
 @dataclass
 class Object:
-    geometry: VAO
+    geometry: VAO | None = None
     name: str = ""
     visible: bool = True
     rotation: Quat = field(default=glm.quat())
@@ -36,6 +40,23 @@ class Object:
 
     def rotate(self, angle: float, axis: glm.vec3) -> None:
         self.rotation = cast("Quat", glm.rotate(self.rotation, angle, axis))
+
+    def serialize(self, f: BinaryIO) -> None:
+        name_bytes = self.name.encode()
+        f.write(struct.pack("<I", len(name_bytes)))
+        f.write(name_bytes)
+        f.write(self.rotation.to_bytes())
+        f.write(self.translation.to_bytes())
+        f.write(self.scale.to_bytes())
+
+    @staticmethod
+    def deserialize(f: BinaryIO) -> "Object":
+        name_len, *_ = struct.unpack("<I", f.read(4))
+        name = f.read(name_len).decode()
+        rotation = Quat.from_bytes(f.read(16))
+        translation = vec3.from_bytes(f.read(12))
+        scale = vec3.from_bytes(f.read(12))
+        return Object(name=name, rotation=rotation, translation=translation, scale=scale)
 
 
 @dataclass(init=False, kw_only=True)
@@ -79,40 +100,41 @@ class Sun(Object):
 @dataclass(kw_only=True)
 class VoxelObject(Object):
     model: Model
-    geometry: VAO = field(default_factory=lambda: geometry.cube(size=(1, 1, 1)))
+    geometry: VAO | None = None
     last_frame_transform: glm.mat4x4 = field(default_factory=lambda: glm.identity(glm.mat4x4))
+    is_dirty = True
     _voxel_texture: Texture3D | None = None
     _palette_texture: Texture | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
             global OBJECT_ID_COUNTER  # noqa: PLW0603
-            self.name = f"{self.model.path.with_suffix('').name}_{OBJECT_ID_COUNTER}"
+            self.name = f"{self.model.name}_{OBJECT_ID_COUNTER}"
             OBJECT_ID_COUNTER += 1
         super().__post_init__()
+        self._center_translation: glm.vec3 = -glm.vec3(self.model.opengl_dimensions) * 0.5
+        self._center_translation.y = 0
+
+    def upload_to_gpu(self, ctx: Context) -> None:
         self.geometry = geometry.cube(
             size=self.model.opengl_dimensions,
             center=(glm.vec3(self.model.opengl_dimensions) * 0.5).to_tuple(),
         )
-        self._center_translation: glm.vec3 = cast("glm.vec3", glm.floor(glm.vec3(self.model.opengl_dimensions) * 0.5))
-        self._center_translation.y = 0
-
-    def upload_to_gpu(self, ctx: Context) -> None:
         self._voxel_texture = ctx.texture3d(
             self.model.opengl_dimensions,
-            data=self.model.generate_voxel_data(),
+            data=self.model.voxel_data,
             components=1,
             alignment=1,
             dtype="u1",
             create_mip_maps=True,
         )
-        self._voxel_texture.label = f"tex3d_model_{self.model.name}"
+        self._voxel_texture.label = f"tex3d_model_{self.name}"
         self._voxel_texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
         self._voxel_texture.repeat_x = False
         self._voxel_texture.repeat_y = False
         self._voxel_texture.repeat_z = False
 
-        palette = self.model.generate_palette_data()
+        palette = self.model.palette_data
         self._palette_texture = ctx.texture((len(palette) // 3, 1), data=palette, components=3, dtype="f1")
         self._palette_texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
         self._palette_texture.repeat_x = False
@@ -144,7 +166,39 @@ class VoxelObject(Object):
     def transform(self) -> Mat4:
         return cast(
             "Mat4",
-            glm.translate(self.translation - self._center_translation)
+            glm.translate(self.translation)
             @ glm.mat4_cast(self.rotation)
-            @ glm.scale(self.scale),
+            @ glm.scale(self.scale)
+            @ glm.translate(self._center_translation),
         )
+
+    def serialize(self, f: BinaryIO) -> None:
+        super().serialize(f)
+        self.model.serialize(f)
+
+    @staticmethod
+    def deserialize(f: BinaryIO) -> "VoxelObject":
+        obj = Object.deserialize(f)
+        model = Model.deserialize(f, obj.name)
+        return VoxelObject(
+            name=obj.name,
+            rotation=obj.rotation,
+            translation=obj.translation,
+            scale=obj.scale,
+            model=model,
+        )
+
+
+class World:
+    def write(self, world_file: Path, vox_objects: Sequence[VoxelObject]) -> None:
+        with world_file.open("wb", buffering=1024 * 1024 * 10) as f:
+            f.write(struct.pack("<I", len(vox_objects)))
+            for vox_obj in vox_objects:
+                vox_obj.serialize(f)
+
+    def read(self, world_file: Path) -> Iterable[VoxelObject]:
+        with world_file.open("rb", buffering=1024 * 1024 * 10) as f:
+            obj_num, *_ = struct.unpack("<I", f.read(4))
+            for _ in range(obj_num):
+                yield VoxelObject.deserialize(f)
+            assert f.read(1) == b""  # EOF

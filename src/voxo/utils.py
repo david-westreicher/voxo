@@ -1,8 +1,11 @@
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
-from typing import cast
+from itertools import islice
+from typing import TypeVar, cast
 
 from pyglm import glm
+
+T = TypeVar("T")
 
 
 @dataclass
@@ -55,9 +58,9 @@ def ray_sphere_intersection(ray: Ray, sphere: Sphere) -> tuple[bool, float]:
     if t < 0:
         return False, 0
     closest = ray.origin + t * ray.direction
-    dist2 = glm.length2(closest - sphere.center)
+    dist2 = glm.length2(closest - sphere.center)  # type:ignore[call-overload]
     if dist2 > sphere.radius * sphere.radius:
-        return False, None
+        return False, 0
 
     # Calculate exact intersection distance
     thc = glm.sqrt(sphere.radius * sphere.radius - dist2)
@@ -72,3 +75,11 @@ def compute_camera_ray(ndc: glm.vec2, proj: glm.mat4x4, view: glm.mat4x4) -> Ray
     camera_pos = glm.vec3(glm.inverse(view)[3])
     direction = glm.vec3(glm.inverse(view) * eye)
     return Ray(camera_pos, glm.normalize(direction))
+
+
+def chunk_iters[T](iterator: Iterable[T], size: int) -> Iterator[list[T]]:
+    while True:
+        chunk = list(islice(iterator, size))
+        if not chunk:
+            break
+        yield chunk

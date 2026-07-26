@@ -50,7 +50,7 @@ vec3 reflect(vec3 I, vec3 N) {
 }
 
 vec3 compute_specular_lighting(vec3 pos, vec3 normal) {
-    vec3 ray_start = pos + normal * 0.1;
+    vec3 ray_start = pos + normal * 1.0;
 
     // Specular Lighting
     vec3 specular = vec3(0.0);
