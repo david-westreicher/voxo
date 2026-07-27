@@ -16,7 +16,7 @@ def parse_vox_object(
     xml_vox: ET.Element,
     vox_file_map: dict[str, SimplifiedVoxFile],
     level_xml: Path,
-) -> VoxModel:
+) -> Iterator[VoxModel]:
     pos = parse_vec3(xml_vox.attrib, field="pos") * 10.0
     rot = glm.quat(glm.radians(parse_vec3(xml_vox.attrib, field="rot")))
     file = xml_vox.attrib["file"]
@@ -29,7 +29,12 @@ def parse_vox_object(
     vox_model.translation = pos
     vox_model.rotation = rot
     vox_model.shape_name = shape
-    return vox_model
+    for xml_wheel in xml_vox.findall("wheel"):
+        for vox_obj in parse_wheel(xml_wheel, vox_file_map, level_xml):
+            vox_obj.rotation = rot * vox_obj.rotation
+            vox_obj.translation = pos + rot * vox_obj.translation
+            yield vox_obj
+    yield vox_model
 
 
 def parse_compound(
@@ -40,10 +45,10 @@ def parse_compound(
     compound_pos = parse_vec3(xml_compound.attrib, field="pos") * 10.0
     compound_rot = glm.quat(glm.radians(parse_vec3(xml_compound.attrib, field="rot")))
     for xml_vox in xml_compound.findall("vox"):
-        vox_obj = parse_vox_object(xml_vox, vox_file_map, level_xml)
-        vox_obj.rotation *= compound_rot
-        vox_obj.translation = compound_pos + compound_rot * vox_obj.translation
-        yield vox_obj
+        for vox_obj in parse_vox_object(xml_vox, vox_file_map, level_xml):
+            vox_obj.rotation *= compound_rot
+            vox_obj.translation = compound_pos + compound_rot * vox_obj.translation
+            yield vox_obj
 
 
 def parse_world_body(
@@ -54,8 +59,7 @@ def parse_world_body(
     # TODO(david): parse voxbox
 
     for xml_vox in xml_world_body.findall("vox"):
-        vox_obj = parse_vox_object(xml_vox, vox_file_map, level_xml)
-        yield vox_obj
+        yield from parse_vox_object(xml_vox, vox_file_map, level_xml)
 
     for xml_compound in xml_world_body.findall("compound"):
         yield from parse_compound(xml_compound, vox_file_map, level_xml)
@@ -70,10 +74,10 @@ def parse_props(
         body_pos = parse_vec3(xml_body.attrib, field="pos") * 10.0
         body_rot = glm.quat(glm.radians(parse_vec3(xml_body.attrib, field="rot")))
         for xml_vox in xml_body.findall(".//vox"):
-            vox_obj = parse_vox_object(xml_vox, vox_file_map, level_xml)
-            vox_obj.rotation = body_rot * vox_obj.rotation
-            vox_obj.translation = body_pos + body_rot * vox_obj.translation
-            yield vox_obj
+            for vox_obj in parse_vox_object(xml_vox, vox_file_map, level_xml):
+                vox_obj.rotation = body_rot * vox_obj.rotation
+                vox_obj.translation = body_pos + body_rot * vox_obj.translation
+                yield vox_obj
 
 
 def parse_wheel(
@@ -84,10 +88,10 @@ def parse_wheel(
     wheel_pos = parse_vec3(xml_wheel.attrib, field="pos") * 10.0
     wheel_rot = glm.quat(glm.radians(parse_vec3(xml_wheel.attrib, field="rot")))
     for xml_vox in xml_wheel.findall("vox"):
-        vox_obj = parse_vox_object(xml_vox, vox_file_map, level_xml)
-        vox_obj.rotation = wheel_rot * vox_obj.rotation
-        vox_obj.translation = wheel_pos + wheel_rot * vox_obj.translation
-        yield vox_obj
+        for vox_obj in  parse_vox_object(xml_vox, vox_file_map, level_xml):
+            vox_obj.rotation = wheel_rot * vox_obj.rotation
+            vox_obj.translation = wheel_pos + wheel_rot * vox_obj.translation
+            yield vox_obj
 
 
 def parse_body(
@@ -98,10 +102,10 @@ def parse_body(
     body_pos = parse_vec3(xml_body.attrib, field="pos") * 10.0
     body_rot = glm.quat(glm.radians(parse_vec3(xml_body.attrib, field="rot")))
     for xml_vox in xml_body.findall("vox"):
-        vox_obj = parse_vox_object(xml_vox, vox_file_map, level_xml)
-        vox_obj.rotation = body_rot * vox_obj.rotation
-        vox_obj.translation = body_pos + body_rot * vox_obj.translation
-        yield vox_obj
+        for vox_obj in parse_vox_object(xml_vox, vox_file_map, level_xml):
+            vox_obj.rotation = body_rot * vox_obj.rotation
+            vox_obj.translation = body_pos + body_rot * vox_obj.translation
+            yield vox_obj
     for xml_wheel in xml_body.findall("wheel"):
         for vox_obj in parse_wheel(xml_wheel, vox_file_map, level_xml):
             vox_obj.rotation = body_rot * vox_obj.rotation

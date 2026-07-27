@@ -16,6 +16,8 @@ void main() {
 #include programs/utils.glsl
 #line 18
 
+#define CAMERA_FAR
+
 in vec2 uv;
 
 uniform mat4 u_inv_projection;
@@ -71,7 +73,8 @@ vec3 spiral_sampling(vec2 uv, Plane plane, vec3 current_normal, vec3 current_col
         float neighbor_depth = texture(tex_current_depth, sample_uv).r;
         vec3 neighbor_normal = texture(tex_current_normals, sample_uv).rgb;
         Ray neighbor_ray = compute_camera_ray(sample_uv, u_inv_projection, u_inv_view, 0, 0.0);
-        if (abs(distance_to_plane(neighbor_ray, plane) - neighbor_depth) > 0.1) {
+        // TODO(david): depth rejection is broken somehow, increasing depth precision made it better
+        if (abs(distance_to_plane(neighbor_ray, plane) - neighbor_depth) > 0.5) {
             continue;
         }
         if (dot(current_normal, neighbor_normal) < 0.9) {
@@ -91,7 +94,7 @@ vec3 spiral_sampling(vec2 uv, Plane plane, vec3 current_normal, vec3 current_col
 void main() {
     float current_depth = texture(tex_current_depth, uv).r;
     vec3 current_color = texture(tex_current, uv).rgb;
-    if (current_depth > 1000) {
+    if (current_depth > CAMERA_FAR) {
         clean_color = current_color;
         return;
     }

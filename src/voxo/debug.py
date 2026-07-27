@@ -490,6 +490,17 @@ class ShaderViewer:
         return self.shaders[self.selected_shader_index]
 
 
+class GlobalOccluderViewer:
+    def __init__(self, window: WindowConfig) -> None:
+        pass
+
+    def render(self) -> None:
+        if imgui.begin("GlobalOccluder", p_open=True):
+            pass
+
+        imgui.end()
+
+
 class DebugView(ModernglWindowRenderer):
     def __init__(
         self,
@@ -505,6 +516,7 @@ class DebugView(ModernglWindowRenderer):
         super().__init__(window.wnd)  # type:ignore[no-untyped-call]
         for texture in textures:
             self.register_texture(texture)
+        self.global_occluder_viewer = GlobalOccluderViewer(window)
         self.texture_viewer = TextureViewer(textures, window)
         self.register_texture(self.texture_viewer.preview_texture)
         self.objects_viewer = ObjectsViewer(scene, self, window)
@@ -541,6 +553,7 @@ class DebugView(ModernglWindowRenderer):
             if obj:
                 self.objects_viewer.selected_object_state = ("Voxos", self.scene.voxel_objects.index(obj))
         imgui.new_frame()
+        self.global_occluder_viewer.render()
         self.texture_viewer.render()
         self.objects_viewer.render()
         self.shader_viewer.render()
@@ -550,5 +563,5 @@ class DebugView(ModernglWindowRenderer):
         selected_texture = self.texture_viewer.textures[self.texture_viewer.selected_texture]
         prev_filter = selected_texture.filter
         selected_texture.filter = moderngl.NEAREST, moderngl.NEAREST
-        super().render(imgui.get_draw_data())
+        self.render(imgui.get_draw_data())
         selected_texture.filter = prev_filter

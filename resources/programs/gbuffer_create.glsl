@@ -72,7 +72,8 @@ vec2 compute_motion_vector(
 
 void main() {
     vec2 screen_uv = gl_FragCoord.xy / SCREEN_DIMENSIONS;
-    Ray camera_ray = compute_camera_ray(screen_uv, uInvProjection, uInvView, frame_counter, 0.5);
+    // TODO(david): Deactivated pixel jittering for now, reactivate once final image TAA is implemented
+    Ray camera_ray = compute_camera_ray(screen_uv, uInvProjection, uInvView, frame_counter, 0.0);
     Ray local_ray = transform_to_local_ray(camera_ray, m_model_inverse);
 
     float t;

@@ -25,6 +25,7 @@ uniform mat4 uInvView;
 uniform mat4 uInvProjection;
 uniform int frame_counter;
 uniform int max_occ_samples;
+uniform float ambient_strength;
 
 layout(binding = 0) uniform sampler2D u_normal;
 layout(binding = 1) uniform sampler2D u_depth;
@@ -62,7 +63,7 @@ vec3 compute_ambient_lighting(vec3 pos, vec3 normal, Pcg32State rnd) {
         }
         // TODO(david): We could take a screen space sample here from the last frame's irradiance texture, also use rejection
     }
-    return ambient / max_occ_samples;
+    return ambient_strength * ambient / max_occ_samples;
 }
 
 void main() {
