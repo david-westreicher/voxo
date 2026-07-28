@@ -80,6 +80,9 @@ def generate_model(
     for y in reversed(range(h)):
         for z in range(d):
             for x in range(w):
+                assert 0 <= x < w
+                assert 0 <= y < h
+                assert 0 <= z < d
                 col = palette_indirection_map[voxel_map.get((x, y, z), 0)]
                 voxel_data.append(col)
 

@@ -20,7 +20,7 @@ class GBuffer:
         self.motion_vectors = window.ctx.texture(size=size, components=2, dtype="f2")
         # NOTE(david): internally uses GL_DEPTH_COMPONENT24 but we want GL_DEPTH_COMPONENT32F
         self.depth_texture = window.ctx.depth_texture(size=size)
-        self.linear_depth = window.ctx.texture(size=size, components=1, dtype="f2")
+        self.linear_depth = window.ctx.texture(size=size, components=1, dtype="f4")
         self.linear_depth.filter = moderngl.NEAREST, moderngl.NEAREST
         self.material_texture = window.ctx.texture(size=size, components=4, dtype="f2")
 
@@ -162,6 +162,7 @@ class PostProcessing:
             last_depth=last_gbuffer.linear_depth,
             current_normals=current_gbuffer.normal_texture,
             frame_counter=frame_counter,
+            last_texture=self.irradiance_taa_2.clean_texture,
         )
         self.irradiance_taa_2.render(
             camera=camera,
@@ -225,6 +226,7 @@ class TAA:
         self.framebuffers: list[Framebuffer] = []
         for i in range(2):
             self.textures.append(window.ctx.texture(size=size, components=3, dtype="f2"))
+            self.textures[-1].filter = moderngl.LINEAR, moderngl.LINEAR
             self.textures[-1].label = f"tex2d_postprocessing_taa_{name}_{i}"
             self.framebuffers.append(window.ctx.framebuffer(color_attachments=[self.textures[-1]]))
             self.framebuffers[-1].label = f"framebuffer_taa_{name}_{i}"
@@ -257,6 +259,7 @@ class TAA:
         frame_counter: int,
         *,
         camera_moved: bool,
+        last_texture: Texture | None = None,
     ) -> None:
         self.pingpong = 1 - self.pingpong
         self.current_framebuffer.use()
@@ -265,7 +268,10 @@ class TAA:
         self.program["u_inv_view"].write(glm.inverse(camera.matrix))
         self.program["use_history_clamping"] = camera_moved
 
-        self.last_texture.use(location=0)
+        if last_texture:
+            last_texture.use(location=0)
+        else:
+            self.last_texture.use(location=0)
         current_texture.use(location=1)
         motion_vectors.use(location=2)
         current_depth.use(location=3)

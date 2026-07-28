@@ -307,7 +307,7 @@ class VoxMaterial:
         mat.density = float(attributes.get("_d", 0.0))
 
         mat.metallic = float(attributes.get("_metal", 0.0))
-        mat.roughness = float(attributes.get("_rough", 0.0))
+        mat.roughness = max(0.0, float(attributes.get("_rough", 0.0)))
         mat.specular_power = float(attributes.get("_sp", 0.0))
 
         mat.emission = float(attributes.get("_emit", 0.0))

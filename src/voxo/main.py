@@ -76,6 +76,7 @@ class CameraWindow(moderngl_window.WindowConfig):  # type: ignore[misc, name-def
 
 class VoxoWindow(CameraWindow):
     gl_version = (4, 6)
+    aspect_ratio = None
     window_size = SCREEN_DIMENSIONS
     title = "voxo"
     resource_dir = Path("resources").resolve()

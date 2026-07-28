@@ -9,7 +9,7 @@ from moderngl_window.scene import Camera
 from pyglm import glm
 from pyglm.glm import mat4x4 as Mat4  # noqa: N812
 
-from .constants import GLOBAL_DEFINE, GLOBAL_OCCLUDER_DIMENSIONS
+from .constants import GLOBAL_DEFINE
 from .objects import Light, Object, Sun, VoxelObject
 from .rendering import GBuffer
 
@@ -50,28 +50,46 @@ class GlobalOccluder:
         self.occluder_volume.translation = glm.vec3(dimensions) * 0.5
 
     def blit_object(self, voxel_object: VoxelObject) -> None:
-        # TODO(david): only blit to affected bounding box
+        min_aabb_vec, max_aabb_vec = voxel_object.aabb
+        min_aabb = glm.clamp(glm.ivec3(glm.floor(min_aabb_vec)), glm.ivec3(0), glm.ivec3(self.dimensions)).to_tuple()
+        max_aabb = glm.clamp(
+            glm.ivec3(glm.ceil(max_aabb_vec)), min_aabb + glm.ivec3(1), glm.ivec3(self.dimensions)
+        ).to_tuple()
+        size = (max_aabb[0] - min_aabb[0], max_aabb[1] - min_aabb[1], max_aabb[2] - min_aabb[2])
+        if any(dim == 0 for dim in size):
+            return
+        for min_coord, max_coord, dim in zip(min_aabb, max_aabb, self.dimensions, strict=True):
+            assert 0 <= min_coord < max_coord <= dim
+
         self.blitter["obj_transform_inv"].write(glm.inverse(voxel_object.transform))
         voxel_object.voxel_texture.use(location=0)
         self.occluder_texture.bind_to_image(1, read=False, write=True, level=0)
+        self.blitter["min_cell"] = min_aabb
+        self.blitter["max_cell"] = max_aabb
         self.blitter.run(
-            GLOBAL_OCCLUDER_DIMENSIONS[0] // 8,
-            GLOBAL_OCCLUDER_DIMENSIONS[1] // 8,
-            GLOBAL_OCCLUDER_DIMENSIONS[2] // 8,
+            (size[0] + 7) // 8,
+            (size[1] + 7) // 8,
+            (size[2] + 7) // 8,
+        )
+
+    def clear_region(self, min_cell: tuple[int, int, int], max_cell: tuple[int, int, int]) -> None:
+        for min_coord, max_coord, dim in zip(min_cell, max_cell, self.dimensions, strict=True):
+            assert min_coord < max_coord <= dim
+        size = (max_cell[0] - min_cell[0], max_cell[1] - min_cell[1], max_cell[2] - min_cell[2])
+        self.occluder_texture.bind_to_image(0, read=False, write=True, level=0)
+        self.clearer["min_cell"] = min_cell
+        self.clearer["max_cell"] = max_cell
+        self.clearer.run(
+            (size[0] + 7) // 8,
+            (size[1] + 7) // 8,
+            (size[2] + 7) // 8,
         )
 
     def clear(self) -> None:
-        # TODO(david): only clear affected bounding box
-        # TODO(david): We should use glClearTexImage/glClearTexSubImage but it's not supported in moderngl
-        self.occluder_texture.bind_to_image(0, read=False, write=True, level=0)
-        self.clearer.run(
-            GLOBAL_OCCLUDER_DIMENSIONS[0] // 8,
-            GLOBAL_OCCLUDER_DIMENSIONS[1] // 8,
-            GLOBAL_OCCLUDER_DIMENSIONS[2] // 8,
-        )
+        self.clear_region((0, 0, 0), self.dimensions)
 
     def update_mipmaps(self) -> None:
-        destination_dimensions = glm.ivec3(GLOBAL_OCCLUDER_DIMENSIONS) // 2
+        destination_dimensions = glm.ivec3(self.dimensions) // 2
         dst_mip = 1
         while glm.min(destination_dimensions) > 0:
             self.occluder_texture.bind_to_image(0, read=True, write=False, level=dst_mip - 1)
@@ -207,6 +225,7 @@ class VoxelAmbientLighting:
         self.voxel_ambient_lighting = window.load_program("programs/voxel_ambient_lighting.glsl", defines=GLOBAL_DEFINE)
         self.voxel_ambient_lighting.label = "prog_voxel_ambient_lighting"
         self.voxel_ambient_lighting["max_occ_samples"] = 2
+        self.voxel_ambient_lighting["ambient_strength"] = 1.0
 
         self.stbnormals = window.load_texture_array("assets/stbn_cosine_normals.png", layers=64)
         self.stbnormals.label = "texarr_stbn_cosine_normals"

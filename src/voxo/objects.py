@@ -112,7 +112,7 @@ class VoxelObject(Object):
             self.name = f"{self.model.name}_{OBJECT_ID_COUNTER}"
             OBJECT_ID_COUNTER += 1
         super().__post_init__()
-        self._center_translation: glm.vec3 = -glm.vec3(self.model.opengl_dimensions) * 0.5
+        self._center_translation: glm.vec3 = -cast("glm.vec3", glm.ceil(glm.vec3(self.model.opengl_dimensions) * 0.5))
         self._center_translation.y = 0
 
     def upload_to_gpu(self, ctx: Context) -> None:
@@ -152,6 +152,31 @@ class VoxelObject(Object):
         pos = cast("glm.vec4", self.transform * dim)
         pos = pos / pos.w
         return glm.vec3(pos)
+
+    @property
+    def aabb(self) -> tuple[glm.vec3, glm.vec3]:
+        w, h, d = self.model.opengl_dimensions
+        corners = [
+            glm.vec4(0, 0, 0, 1),
+            glm.vec4(w, 0, 0, 1),
+            glm.vec4(0, h, 0, 1),
+            glm.vec4(w, h, 0, 1),
+            glm.vec4(0, 0, d, 1),
+            glm.vec4(w, 0, d, 1),
+            glm.vec4(0, h, d, 1),
+            glm.vec4(w, h, d, 1),
+        ]
+
+        aabb_min = glm.vec3(float("inf"))
+        aabb_max = glm.vec3(float("-inf"))
+
+        for corner in corners:
+            world = glm.vec3(self.transform * corner)
+
+            aabb_min = cast("glm.vec3", glm.min(aabb_min, world))
+            aabb_max = cast("glm.vec3", glm.max(aabb_max, world))
+
+        return aabb_min, aabb_max
 
     @property
     def bounding_sphere(self) -> Sphere:
