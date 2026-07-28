@@ -20,6 +20,7 @@ class GBuffer:
         self.motion_vectors = window.ctx.texture(size=size, components=2, dtype="f2")
         # NOTE(david): internally uses GL_DEPTH_COMPONENT24 but we want GL_DEPTH_COMPONENT32F
         self.depth_texture = window.ctx.depth_texture(size=size)
+        # NOTE(david): storing linear depth in 32bit float may be unnecessary
         self.linear_depth = window.ctx.texture(size=size, components=1, dtype="f4")
         self.linear_depth.filter = moderngl.NEAREST, moderngl.NEAREST
         self.material_texture = window.ctx.texture(size=size, components=4, dtype="f2")
@@ -105,27 +106,6 @@ class SmoothNormals:
         return [self.program]
 
 
-class GBufferDebug:
-    def __init__(self, window: moderngl_window.WindowConfig) -> None:  # type: ignore[name-defined]
-        self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
-        self.gbuffer_debug = window.load_program("programs/gbuffer_debug.glsl")
-        self.gbuffer_debug.label = "prog_gbuffer_debug"
-        self.gbuffer_debug["u_albedo"].value = 0
-        self.gbuffer_debug["u_normal"].value = 1
-        self.gbuffer_debug["u_depth"].value = 2
-        self.gbuffer_debug["u_motion_vectors"].value = 3
-        self.gbuffer_debug["u_lighting"].value = 4
-
-    def render(self, gbuffer: GBuffer, final_hdr_texture: Texture, *, debug: bool) -> None:
-        gbuffer.albedo_texture.use(location=0)
-        gbuffer.smooth_normal_texture.use(location=1)
-        gbuffer.linear_depth.use(location=2)
-        gbuffer.motion_vectors.use(location=3)
-        final_hdr_texture.use(location=4)
-        self.gbuffer_debug["full"].value = not debug
-        self.quad_fs.render(self.gbuffer_debug)
-
-
 class PostProcessing:
     def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int]) -> None:  # type: ignore[name-defined]
         self.final_texture = window.ctx.texture(size=size, components=3, dtype="f2")
@@ -135,11 +115,15 @@ class PostProcessing:
 
         self.postprocessing_program = window.load_program("programs/postprocessing.glsl", defines=GLOBAL_DEFINE)
         self.postprocessing_program.label = "prog_postprocessing"
+        self.tonemapping_program = window.load_program("programs/tonemapping.glsl", defines=GLOBAL_DEFINE)
+        self.tonemapping_program.label = "prog_tonemapping"
         self.quad = geometry.quad_fs(normals=False, uvs=True)
 
         self.irradiance_taa = TAA(window, size, "irradiance")
         self.irradiance_taa_2 = TAA(window, size, "irradiance_2")
         self.specular_taa = TAA(window, size, "specular")
+
+        self.bloom = Bloom(window, size)
 
     def render(  # noqa: PLR0913
         self,
@@ -200,6 +184,14 @@ class PostProcessing:
         current_gbuffer.material_texture.use(location=4)
         self.quad.render(self.postprocessing_program)
 
+        self.bloom.render(self.final_texture)
+        self.framebuffer.use()
+        self.bloom.add_final_bloom(strength=1.0)
+
+    def render_final_tonemapped_texture(self) -> None:
+        self.final_texture.use(location=0)
+        self.quad.render(self.tonemapping_program)
+
     @cached_property
     def textures(self) -> list[Texture]:
         return [
@@ -207,15 +199,18 @@ class PostProcessing:
             *self.irradiance_taa.textures,
             *self.irradiance_taa_2.textures,
             *self.specular_taa.textures,
+            *self.bloom.textures,
         ]
 
     @cached_property
     def shaders(self) -> list[Program]:
         return [
             self.postprocessing_program,
+            self.tonemapping_program,
             *self.irradiance_taa.shaders,
             *self.irradiance_taa_2.shaders,
             *self.specular_taa.shaders,
+            *self.bloom.shaders,
         ]
 
 
@@ -283,6 +278,117 @@ class TAA:
     @cached_property
     def shaders(self) -> list[Program]:
         return [self.program]
+
+
+class Bloom:
+    def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int]) -> None:  # type: ignore[name-defined]
+        self.blurrer = []
+        size = (size[0] // 2, size[1] // 2)
+
+        self.exposed_texture = window.ctx.texture(size, components=3, dtype="f2")
+        self.exposed_texture.label = "tex_postprocessing_bloom_exposed_texture"
+        self.exposed_texture.repeat_x = False
+        self.exposed_texture.repeat_y = False
+        self.framebuffer = window.ctx.framebuffer(color_attachments=[self.exposed_texture])
+        self.framebuffer.label = "framebuffer_postprocessing_bloom_exposed_texture"
+
+        self.extract_bloom = window.load_program("programs/extract_bloom.glsl", defines=GLOBAL_DEFINE)
+        self.extract_bloom["exposure"] = 2.5
+        self.extract_bloom.label = "prog_postprocessing_bloom_extract_bloom"
+
+        while min(size) >= 4:
+            size = (size[0] // 2, size[1] // 2)
+            self.blurrer.append(Blur(window, size))
+
+        self.upsample_blur = window.load_program("programs/upsample_blur.glsl", defines=GLOBAL_DEFINE)
+        self.upsample_blur["strength"] = 1.0
+        self.upsample_blur.label = "prog_postprocessing_bloom_upsample_blur"
+        self.quad = geometry.quad_fs(normals=False, uvs=True)
+
+    def render(self, current_texture: Texture) -> None:
+        self.framebuffer.use()
+        current_texture.use(location=0)
+        self.quad.render(self.extract_bloom)
+
+        current_input_texture = self.exposed_texture
+        for blur in self.blurrer:
+            blur.render(current_input_texture)
+            current_input_texture = blur.current_texture
+
+        ctx = self.exposed_texture.ctx
+        ctx.enable_only(moderngl.BLEND)
+        ctx.blend_equation = moderngl.FUNC_ADD
+        ctx.blend_func = (moderngl.ONE, moderngl.ONE)
+
+        self.upsample_blur["strength"] = 0.7
+        for blur in reversed(self.blurrer[:-1]):
+            blur.framebuffers[0].use()
+            current_input_texture.use(location=0)
+            self.quad.render(self.upsample_blur)
+            current_input_texture = blur.textures[0]
+
+        self.framebuffer.use()
+        current_input_texture.use(location=0)
+        self.quad.render(self.upsample_blur)
+        ctx.disable(moderngl.BLEND)
+
+    def add_final_bloom(self, strength: float) -> None:
+        ctx = self.exposed_texture.ctx
+        ctx.enable_only(moderngl.BLEND)
+        ctx.blend_equation = moderngl.FUNC_ADD
+        ctx.blend_func = (moderngl.ONE, moderngl.ONE)
+        self.exposed_texture.use(location=0)
+        self.upsample_blur["strength"] = strength
+        self.quad.render(self.upsample_blur)
+        ctx.disable(moderngl.BLEND)
+
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [self.extract_bloom, *[shader for blur in self.blurrer for shader in blur.shaders]]
+
+    @cached_property
+    def textures(self) -> list[Texture]:
+        return [self.exposed_texture, *[tex for blur in self.blurrer for tex in blur.textures]]
+
+
+class Blur:
+    def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int]) -> None:  # type: ignore[name-defined]
+        self.textures: list[Texture] = []
+        self.framebuffers = []
+        for i in range(2):
+            texture = window.ctx.texture(size, components=3, dtype="f2")
+            texture.label = f"tex_postprocessing_blur_{size}_{i}"
+            texture.filter = moderngl.LINEAR, moderngl.LINEAR
+            texture.repeat_x = False
+            texture.repeat_y = False
+            framebuffer = window.ctx.framebuffer(color_attachments=[texture])
+            framebuffer.label = f"framebuffer_postprocessing_blur_{size}_{i}"
+            self.textures.append(texture)
+            self.framebuffers.append(framebuffer)
+
+        self.blur_vert = window.load_program("programs/blur.glsl", defines=GLOBAL_DEFINE | {"HORIZONTAL": "0"})
+        self.blur_vert.label = f"prog_postprocessing_blur_vert_{size}"
+        self.blur_horiz = window.load_program("programs/blur.glsl", defines=GLOBAL_DEFINE | {"HORIZONTAL": "1"})
+        self.blur_horiz.label = f"prog_postprocessing_blur_horiz_{size}"
+
+        self.quad = geometry.quad_fs(normals=False, uvs=True)
+
+    @property
+    def current_texture(self) -> Texture:
+        return self.textures[-1]
+
+    def render(self, input_texture: Texture) -> None:
+        self.framebuffers[0].use()
+        input_texture.use(location=0)
+        self.quad.render(self.blur_vert)
+
+        self.framebuffers[1].use()
+        self.textures[0].use(location=0)
+        self.quad.render(self.blur_horiz)
+
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [self.blur_vert, self.blur_horiz]
 
 
 class WireFrameRenderer:

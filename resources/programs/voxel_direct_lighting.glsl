@@ -78,8 +78,8 @@ vec3 compute_direct_light(vec3 pos, vec3 normal, vec3 light_pos) {
     vec3 light_center = sample_disk_light(light_pos, normalize(pos - light_pos), lightRadius, generate_random_vec2(light_rand_state));
     vec3 L = normalize(light_pos - pos); // direction to light
     Ray sun_ray = Ray(ray_start, normalize(light_center - ray_start));
-    Hit sun_hit = sparse_raymarch(sun_ray, MAX_STEPS, u_voxel_data, bbox, 2);
-    if (!sun_hit.hit || sun_hit.t >= distance(pos, light_pos)) {
+    Hit sun_hit = sparse_raymarch(sun_ray, MAX_STEPS, u_voxel_data, bbox, 16);
+    if (!sun_hit.hit || sun_hit.t >= distance(pos, light_center)) {
         float distance = length(light_pos - pos);
         // Lambert cosine term
         float NdotL = max(dot(normal, L), 0.0);
