@@ -25,6 +25,7 @@ uniform mat4 uInvView;
 uniform mat4 uInvProjection;
 uniform vec3 sun_direction;
 uniform int frame_counter;
+uniform ivec3 occluder_translation;
 
 layout(binding = 0) uniform sampler2D u_normal;
 layout(binding = 1) uniform sampler2D u_depth;
@@ -59,6 +60,7 @@ vec3 compute_specular_lighting(vec3 pos, vec3 normal, float reflectivity, float 
         vec3 random_normal = generate_random_stbn_unitvec3(u_stbn_unitvec3, normal_rand_state) * roughness;
         vec3 reflection_jittered = normalize(reflection_vec + random_normal);
         Ray occ_ray = Ray(ray_start, reflection_jittered);
+        occ_ray.origin -= occluder_translation;
         Hit occ_hit = sparse_raymarch(occ_ray, MAX_SPECULAR_DISTANCE, u_global_occluder, bbox, 16);
         if (!occ_hit.hit) {
             specular += skyColor(occ_ray.direction, sun_direction);

@@ -68,6 +68,72 @@ def test_global_occluder_blit_single_voxel(window_config: WindowConfig, translat
     np.testing.assert_array_equal(resulting_occluder, expected_occluder)
 
 
+@pytest.mark.parametrize(
+    "translation",
+    [
+        glm.vec3(0, 0, 0),
+        glm.vec3(2, 2, 2),
+        glm.vec3(4, 4, 4),
+        glm.vec3(4, 0, 0),
+        glm.vec3(0, 4, 0),
+        glm.vec3(0, 0, 4),
+        glm.vec3(4, 4, 0),
+        glm.vec3(4, 0, 4),
+        glm.vec3(0, 4, 4),
+    ],
+)
+def test_global_occluder_blit_occluder_translation(window_config: WindowConfig, translation: glm.vec3):
+    # arrange
+    global_occluder = GlobalOccluder(window_config, dimensions=(5, 5, 5))
+    global_occluder.occluder_volume.translation = -translation
+    vox_obj = create_cube((1, 1, 1), window_config.ctx)
+    vox_obj.translation = glm.vec3(1, 0, 1)
+
+    # act
+    global_occluder.blit_object(vox_obj)
+    window_config.ctx.finish()
+
+    # assert
+    resulting_occluder = np.frombuffer(global_occluder.occluder_texture.read(), dtype=np.byte).reshape(5, 5, 5)
+    expected_occluder = np.zeros(shape=(5, 5, 5), dtype=np.byte)
+    pos = glm.ivec3(translation)
+    expected_occluder[pos[2]][pos[1]][pos[0]] = 1
+    np.testing.assert_array_equal(resulting_occluder, expected_occluder)
+
+
+def test_global_occluder_blit_single_voxel_on_edge(window_config: WindowConfig):
+    # arrange
+    global_occluder = GlobalOccluder(window_config, dimensions=(5, 5, 5))
+    vox_obj = create_cube((1, 1, 1), window_config.ctx)
+    vox_obj.translation = glm.vec3(0.501, 0, 0.501)
+
+    # act
+    global_occluder.blit_object(vox_obj)
+    window_config.ctx.finish()
+
+    # assert
+    resulting_occluder = np.frombuffer(global_occluder.occluder_texture.read(), dtype=np.byte).reshape(5, 5, 5)
+    expected_occluder = np.zeros(shape=(5, 5, 5), dtype=np.byte)
+    expected_occluder[0][0][0] = 1
+    np.testing.assert_array_equal(resulting_occluder, expected_occluder)
+
+
+def test_global_occluder_blit_single_voxel_on_edge_fails(window_config: WindowConfig):
+    # arrange
+    global_occluder = GlobalOccluder(window_config, dimensions=(5, 5, 5))
+    vox_obj = create_cube((1, 1, 1), window_config.ctx)
+    vox_obj.translation = glm.vec3(0.5, 0, 0.5)
+
+    # act
+    global_occluder.blit_object(vox_obj)
+    window_config.ctx.finish()
+
+    # assert
+    resulting_occluder = np.frombuffer(global_occluder.occluder_texture.read(), dtype=np.byte).reshape(5, 5, 5)
+    expected_occluder = np.zeros(shape=(5, 5, 5), dtype=np.byte)
+    np.testing.assert_array_equal(resulting_occluder, expected_occluder)
+
+
 def test_global_occluder_blit_simple_2x2x2_edge(window_config: WindowConfig):
     """
     Top View of 2x2x2 cube centered (only x,z) at origin (translation = (0,0,0))
@@ -210,4 +276,21 @@ def test_global_occluder_clear_region(
     resulting_occluder = np.frombuffer(global_occluder.occluder_texture.read(), dtype=np.byte).reshape(6, 6, 6)
     expected_occluder = np.ones(shape=(6, 6, 6), dtype=np.byte)
     expected_occluder[min_cell[2] : max_cell[2], min_cell[1] : max_cell[1], min_cell[0] : max_cell[0]] = 0
+    np.testing.assert_array_equal(resulting_occluder, expected_occluder)
+
+
+def test_global_occluder_clear_region_occluder_translation_has_no_influence(window_config: WindowConfig):
+    # arrange
+    global_occluder = GlobalOccluder(window_config, dimensions=(6, 6, 6))
+    fill_occluder(global_occluder, window_config.ctx)
+    global_occluder.occluder_volume.translation = glm.vec3(-3, -3, -3)
+
+    # act
+    global_occluder.clear_region((0, 0, 0), (1, 1, 1))
+    window_config.ctx.finish()
+
+    # assert
+    resulting_occluder = np.frombuffer(global_occluder.occluder_texture.read(), dtype=np.byte).reshape(6, 6, 6)
+    expected_occluder = np.ones(shape=(6, 6, 6), dtype=np.byte)
+    expected_occluder[0][0][0] = 0
     np.testing.assert_array_equal(resulting_occluder, expected_occluder)

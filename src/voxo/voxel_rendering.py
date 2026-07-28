@@ -1,8 +1,9 @@
 from collections.abc import Sequence
 from functools import cached_property
+from typing import cast
 
 import moderngl
-from moderngl import ComputeShader, Program, Texture, Texture3D
+from moderngl import ComputeShader, Program, Texture
 from moderngl_window import geometry
 from moderngl_window.context.base import WindowConfig
 from moderngl_window.scene import Camera
@@ -15,10 +16,9 @@ from .rendering import GBuffer
 
 
 class GlobalOccluder:
-    def __init__(self, window: WindowConfig, dimensions: tuple[int, int, int]) -> None:
+    def __init__(self, window: WindowConfig, dimensions: tuple[int, int, int], *, center: bool = False) -> None:
         self.dimensions = dimensions
         self.blitter: ComputeShader = window.load_compute_shader("programs/blitter.glsl")
-        self.blitter["voxel_texture"].value = 0
         self.blitter.label = "prog_blitter"
 
         self.clearer: ComputeShader = window.load_compute_shader("programs/clearer.glsl")
@@ -28,7 +28,6 @@ class GlobalOccluder:
         self.mipmapper.label = "prog_occluder_mipmapper"
 
         self.debug_shader: Program = window.load_program("programs/debug_occluder.glsl", defines=GLOBAL_DEFINE)
-        self.debug_shader["occluder_texture"].value = 0
         self.debug_shader.label = "prog_debug_occluder"
         self.debug_quad = geometry.quad_fs(normals=False, uvs=True)
 
@@ -46,11 +45,20 @@ class GlobalOccluder:
         self.occluder_texture.repeat_z = False
         self.occluder_texture.label = "tex3d_global_occluder"
 
-        self.occluder_volume = Object(geometry=geometry.cube(size=dimensions))
-        self.occluder_volume.translation = glm.vec3(dimensions) * 0.5
+        self.occluder_volume = Object(
+            geometry=geometry.cube(
+                size=dimensions,
+                center=(glm.vec3(dimensions) * 0.5).to_tuple(),
+            )
+        )
+        if center:
+            self.occluder_volume.translation = -cast("glm.vec3", glm.ceil(glm.vec3(dimensions) * 0.5))
+            self.occluder_volume.translation.y = 0
 
     def blit_object(self, voxel_object: VoxelObject) -> None:
         min_aabb_vec, max_aabb_vec = voxel_object.aabb
+        min_aabb_vec -= self.occluder_volume.translation
+        max_aabb_vec -= self.occluder_volume.translation
         min_aabb = glm.clamp(glm.ivec3(glm.floor(min_aabb_vec)), glm.ivec3(0), glm.ivec3(self.dimensions)).to_tuple()
         max_aabb = glm.clamp(
             glm.ivec3(glm.ceil(max_aabb_vec)), min_aabb + glm.ivec3(1), glm.ivec3(self.dimensions)
@@ -62,10 +70,11 @@ class GlobalOccluder:
             assert 0 <= min_coord < max_coord <= dim
 
         self.blitter["obj_transform_inv"].write(glm.inverse(voxel_object.transform))
-        voxel_object.voxel_texture.use(location=0)
-        self.occluder_texture.bind_to_image(1, read=False, write=True, level=0)
         self.blitter["min_cell"] = min_aabb
         self.blitter["max_cell"] = max_aabb
+        self.blitter["occluder_translation"].write(glm.ivec3(self.occluder_volume.translation))
+        voxel_object.voxel_texture.use(location=0)
+        self.occluder_texture.bind_to_image(1, read=False, write=True, level=0)
         self.blitter.run(
             (size[0] + 7) // 8,
             (size[1] + 7) // 8,
@@ -105,6 +114,7 @@ class GlobalOccluder:
 
     def render_debug(self, camera: Camera) -> None:
         self.occluder_texture.use(location=0)
+        self.debug_shader["occluder_translation"].write(glm.ivec3(self.occluder_volume.translation))
         self.debug_shader["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.debug_shader["uInvView"].write(glm.inverse(camera.matrix))
         self.debug_quad.render(self.debug_shader)
@@ -179,7 +189,7 @@ class VoxelLighting:
         self,
         camera: Camera,
         gbuffer: GBuffer,
-        voxel_texture: Texture3D,
+        occluder: GlobalOccluder,
         lights: Sequence[Light],
         suns: Sequence[Sun],
         frame_counter: int,
@@ -188,7 +198,7 @@ class VoxelLighting:
         ctx.disable(moderngl.DEPTH_TEST)
         self.lighting_clearer.clear(red=0, green=0, blue=0)
 
-        self.ambient_lighting.render(camera, gbuffer, voxel_texture, frame_counter)
+        self.ambient_lighting.render(camera, gbuffer, occluder, frame_counter)
 
         ctx.enable_only(moderngl.BLEND)
         ctx.blend_equation = moderngl.FUNC_ADD  # type:ignore[assignment]
@@ -196,16 +206,16 @@ class VoxelLighting:
         for sun in suns:
             if not sun.visible:
                 continue
-            self.direct_lighting.render_sun(camera, gbuffer, voxel_texture, sun, frame_counter)
+            self.direct_lighting.render_sun(camera, gbuffer, occluder, sun, frame_counter)
         # TODO(david): enable front face culling
         for light in lights:
             if not light.visible:
                 continue
-            self.direct_lighting.render_light(camera, gbuffer, voxel_texture, light, frame_counter)
+            self.direct_lighting.render_light(camera, gbuffer, occluder, light, frame_counter)
         ctx.disable(moderngl.BLEND)
 
         sun_direction = suns[0].direction if suns and suns[0].visible else glm.vec3(0, -1, 0)
-        self.specular_lighting.render(camera, sun_direction, gbuffer, voxel_texture, frame_counter)
+        self.specular_lighting.render(camera, sun_direction, gbuffer, occluder, frame_counter)
 
     @cached_property
     def textures(self) -> list[Texture]:
@@ -235,16 +245,17 @@ class VoxelAmbientLighting:
         self.stbn_vec3.label = "texarr_stbn_vec3"
         self.stbn_vec3.filter = (moderngl.NEAREST, moderngl.NEAREST)
 
-    def render(self, camera: Camera, gbuffer: GBuffer, voxel_texture: Texture3D, frame_counter: int) -> None:
+    def render(self, camera: Camera, gbuffer: GBuffer, occluder: GlobalOccluder, frame_counter: int) -> None:
         self.framebuffer.use()
 
+        self.voxel_ambient_lighting["occluder_translation"].write(glm.ivec3(occluder.occluder_volume.translation))
         self.voxel_ambient_lighting["frame_counter"].value = frame_counter
         self.voxel_ambient_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.voxel_ambient_lighting["uInvView"].write(glm.inverse(camera.matrix))
         gbuffer.normal_texture.use(location=0)
         gbuffer.depth_texture.use(location=1)
         gbuffer.linear_depth.use(location=2)
-        voxel_texture.use(location=3)
+        occluder.occluder_texture.use(location=3)
         self.stbnormals.use(location=4)
         self.stbn_vec3.use(location=5)
 
@@ -286,20 +297,21 @@ class VoxelDirectLighting:
         self,
         camera: Camera,
         gbuffer: GBuffer,
-        voxel_texture: Texture3D,
+        occluder: GlobalOccluder,
         light: Light,
         frame_counter: int,
     ) -> None:
         self.framebuffer.use()
         self._setup_uniforms(self.voxel_direct_light, camera, frame_counter)
 
+        self.voxel_direct_sun["occluder_translation"].write(glm.ivec3(occluder.occluder_volume.translation))
         self.voxel_direct_light["lightPos"].write(light.translation)
         self.voxel_direct_light["lightRadius"] = light.radius
         self.voxel_direct_light["lightColor"].write(light.color * light.intensity)
         gbuffer.smooth_normal_texture.use(location=0)
         gbuffer.depth_texture.use(location=1)
         gbuffer.linear_depth.use(location=2)
-        voxel_texture.use(location=3)
+        occluder.occluder_texture.use(location=3)
         self.random_vec2.use(location=4)
 
         # TODO(david): use light geometry for rendering, also need to change attenuation in shader
@@ -309,20 +321,21 @@ class VoxelDirectLighting:
         self,
         camera: Camera,
         gbuffer: GBuffer,
-        voxel_texture: Texture3D,
+        occluder: GlobalOccluder,
         sun: Sun,
         frame_counter: int,
     ) -> None:
         self.framebuffer.use()
         self._setup_uniforms(self.voxel_direct_sun, camera, frame_counter)
 
+        self.voxel_direct_sun["occluder_translation"].write(glm.ivec3(occluder.occluder_volume.translation))
         self.voxel_direct_sun["sunDirection"].write(sun.direction)
         self.voxel_direct_sun["lightColor"].write(sun.color)
         self.voxel_direct_sun["lightRadius"] = sun.radius
         gbuffer.smooth_normal_texture.use(location=0)
         gbuffer.depth_texture.use(location=1)
         gbuffer.linear_depth.use(location=2)
-        voxel_texture.use(location=3)
+        occluder.occluder_texture.use(location=3)
         self.random_vec2.use(location=4)
 
         self.quad_fs.render(self.voxel_direct_sun)
@@ -353,11 +366,12 @@ class VoxelSpecularLighting:
         camera: Camera,
         sun_direction: glm.vec3,
         gbuffer: GBuffer,
-        voxel_texture: Texture3D,
+        occluder: GlobalOccluder,
         frame_counter: int,
     ) -> None:
         self.framebuffer.use()
 
+        self.voxel_specular_lighting["occluder_translation"].write(glm.ivec3(occluder.occluder_volume.translation))
         self.voxel_specular_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.voxel_specular_lighting["uInvView"].write(glm.inverse(camera.matrix))
         self.voxel_specular_lighting["sun_direction"].write(sun_direction)
@@ -366,7 +380,7 @@ class VoxelSpecularLighting:
         gbuffer.depth_texture.use(location=1)
         gbuffer.linear_depth.use(location=2)
         gbuffer.material_texture.use(location=3)
-        voxel_texture.use(location=4)
+        occluder.occluder_texture.use(location=4)
         self.stbnormals.use(location=5)
 
         self.quad_fs.render(self.voxel_specular_lighting)

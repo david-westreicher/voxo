@@ -21,6 +21,7 @@ in vec2 uv;
 uniform mat4 uInvView;
 uniform mat4 uInvProjection;
 uniform usampler3D occluder_texture;
+uniform ivec3 occluder_translation;
 
 ivec3 size = textureSize(occluder_texture, 0);
 Box bbox = Box(vec3(0.0), vec3(size));
@@ -30,6 +31,7 @@ out vec4 fragColor;
 
 void main() {
     Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, 0, 0.0);
+    camera_ray.origin -= occluder_translation;
     Hit hit = dda(camera_ray, MAX_STEPS, occluder_texture, bbox);
     if (!hit.hit) {
         fragColor = vec4(camera_ray.direction * 0.5 + 0.5, 1.0);
