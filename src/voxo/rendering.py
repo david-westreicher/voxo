@@ -344,7 +344,7 @@ class Bloom:
 
     @cached_property
     def shaders(self) -> list[Program]:
-        return [self.extract_bloom, *[shader for blur in self.blurrer for shader in blur.shaders]]
+        return [self.extract_bloom, self.upsample_blur, *[shader for blur in self.blurrer for shader in blur.shaders]]
 
     @cached_property
     def textures(self) -> list[Texture]:

@@ -45,7 +45,7 @@ void main() {
     vec3 color = vec3(0.0);
     float weight_sum = 0.0;
 
-    // Reduce firefly flickering by taking a weighted averag over close by texels
+    // Reduce firefly flickering by taking a weighted average over close by texels
     // https://catlikecoding.com/unity/tutorials/custom-srp/hdr/
     for (int i = 0; i < 5; i++) {
         vec3 c = texture(u_input_texture, uv + offsets[i] * texel_size * 2.0).rgb;
