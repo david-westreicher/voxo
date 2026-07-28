@@ -32,6 +32,7 @@ uniform vec3 lightPos;
 #endif
 uniform float lightRadius;
 uniform vec3 lightColor;
+uniform ivec3 occluder_translation;
 
 layout(binding = 0) uniform sampler2D u_normal;
 layout(binding = 1) uniform sampler2D u_depth;
@@ -78,6 +79,7 @@ vec3 compute_direct_light(vec3 pos, vec3 normal, vec3 light_pos) {
     vec3 light_center = sample_disk_light(light_pos, normalize(pos - light_pos), lightRadius, generate_random_vec2(light_rand_state));
     vec3 L = normalize(light_pos - pos); // direction to light
     Ray sun_ray = Ray(ray_start, normalize(light_center - ray_start));
+    sun_ray.origin -= occluder_translation;
     Hit sun_hit = sparse_raymarch(sun_ray, MAX_STEPS, u_voxel_data, bbox, 16);
     if (!sun_hit.hit || sun_hit.t >= distance(pos, light_center)) {
         float distance = length(light_pos - pos);
@@ -99,6 +101,7 @@ vec3 compute_direct_sun(vec3 pos, vec3 normal, vec3 sun_direction) {
     vec3 L = normalize(sample_disk_light(sun_direction, normalize(sun_direction), lightRadius, generate_random_vec2(light_rand_state))); // direction to light
 
     Ray sun_ray = Ray(ray_start, L);
+    sun_ray.origin -= occluder_translation;
     Hit sun_hit = sparse_raymarch(sun_ray, MAX_STEPS, u_voxel_data, bbox, 16);
     if (!sun_hit.hit) {
         // Lambert cosine term
@@ -110,14 +113,14 @@ vec3 compute_direct_sun(vec3 pos, vec3 normal, vec3 sun_direction) {
 }
 
 void main() {
-    Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, 0, 0.0);
     float depth = texture(u_depth, uv).r;
     if (depth == 1.0) {
         out_irradiance = vec3(0.0);
         return;
     }
-    vec3 normal = texture(u_normal, uv).rgb;
+    Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, 0, 0.0);
     vec3 pos = camera_ray.origin + camera_ray.direction * linear_depth;
+    vec3 normal = texture(u_normal, uv).rgb;
     #if IS_SUN == 1
     vec3 color = compute_direct_sun(pos, normal, sunDirection);
     #else

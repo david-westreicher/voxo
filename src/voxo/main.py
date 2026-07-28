@@ -93,7 +93,7 @@ class VoxoWindow(CameraWindow):
         self.camera.position = glm.vec3(CENTER) + glm.vec3(0, 100, 0)
 
         self.last_frame_projview: Mat4 = cast("Mat4", self.camera.projection.matrix @ self.camera.matrix)
-        self.global_occluder = GlobalOccluder(self, GLOBAL_OCCLUDER_DIMENSIONS)
+        self.global_occluder = GlobalOccluder(self, GLOBAL_OCCLUDER_DIMENSIONS, center=True)
         self.voxel_renderer = VoxelRenderer(self)
         self.gbuffer = GBufferPingPong(self, SCREEN_DIMENSIONS)
         self.voxel_lighting = VoxelLighting(self, SCREEN_DIMENSIONS)
@@ -203,7 +203,7 @@ class VoxoWindow(CameraWindow):
             self.voxel_lighting.render(
                 self.synced_camera,
                 gbuffer,
-                self.global_occluder.occluder_texture,
+                self.global_occluder,
                 self.scene.lights,
                 self.scene.suns,
                 self.frame_counter,
