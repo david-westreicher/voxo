@@ -58,7 +58,7 @@ vec3 skyColor(vec3 rd, vec3 sun_direction)
         color += vec3(20.0, 18.0, 14.0) * pow(sun, 128.0);
 
         // Sun disc (HDR)
-        color += vec3(200.0) * pow(sun, 40.0);
+        color += vec3(200.0) * pow(sun, 80.0);
     }
     return color;
 }

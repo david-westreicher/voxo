@@ -19,7 +19,7 @@ from .constants import (
     SCREEN_DIMENSIONS,
 )
 from .debug import DebugView
-from .rendering import GBufferDebug, GBufferPingPong, PostProcessing, WireFrameRenderer
+from .rendering import GBufferPingPong, PostProcessing, WireFrameRenderer
 from .scene import Scene
 from .voxel_rendering import GlobalOccluder, VoxelLighting, VoxelRenderer
 
@@ -97,7 +97,6 @@ class VoxoWindow(CameraWindow):
         self.voxel_renderer = VoxelRenderer(self)
         self.gbuffer = GBufferPingPong(self, SCREEN_DIMENSIONS)
         self.voxel_lighting = VoxelLighting(self, SCREEN_DIMENSIONS)
-        self.gbuffer_debug = GBufferDebug(self)
         self.wireframe_box = WireFrameRenderer(self)
         self.post_processing = PostProcessing(self, SCREEN_DIMENSIONS)
 
@@ -223,15 +222,15 @@ class VoxoWindow(CameraWindow):
                 last_gbuffer=self.gbuffer.last,
                 frame_counter=self.frame_counter,
             )
+            self.ctx.screen.use()
+            self.post_processing.render_final_tonemapped_texture()
 
-        # Render framebuffer onto screen
-        self.ctx.screen.use()
-        self.gbuffer_debug.render(gbuffer, final_hdr_texture=self.post_processing.final_texture, debug=self.debug)
+        # Render Debug Information
         self.wireframe_box.render(self.synced_camera, [*self.scene.lights])
         if self.debug:
             self.global_occluder.render_debug(self.synced_camera)
             self.wireframe_box.render(self.synced_camera, self.scene.voxel_objects)
-            self.wireframe_box.render(self.synced_camera, [*self.scene.lights, self.global_occluder.occluder_volume])
+            self.wireframe_box.render(self.synced_camera, [self.global_occluder.occluder_volume])
         if not self.camera_enabled:
             self.debugger.render_debug(self.global_frame_counter, frametime)
         self.gbuffer.swap()
