@@ -168,6 +168,8 @@ class VoxoWindow(CameraWindow):
         self.time = time
         self.global_frame_counter += 1
         self.frame_counter += 0 if self.debugger.is_frame_counter_stopped else 1
+
+        occluder_was_updated = False
         with self.profile("update occluder"):
             if self.timer.is_running or not self.camera_enabled:
                 self.scene.update(time)
@@ -178,6 +180,9 @@ class VoxoWindow(CameraWindow):
                         # TODO(david): clear dirty objects
                         self.global_occluder.blit_object(voxel_object)
                         voxel_object.is_dirty = False
+                        occluder_was_updated = True
+        with self.profile("occluder mipmaps"):
+            if occluder_was_updated:
                 self.global_occluder.update_mipmaps()
 
         # Fill GBuffer

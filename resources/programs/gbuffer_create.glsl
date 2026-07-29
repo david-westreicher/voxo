@@ -1,17 +1,50 @@
 #version 430
+#define USE_VOXEL_OBJECT_INSTANCING
+#extension GL_ARB_bindless_texture : require
+#extension GL_ARB_gpu_shader_int64 : require
+
+struct Object {
+    mat4 m_model;
+    mat4 m_model_inverse;
+    mat4 m_prev_model;
+    vec4 m_dimensions;
+};
+
+layout(std430, binding = 0) buffer Instances {
+    Object objects[];
+};
+
+struct TextureInformation {
+    uint64_t voxel_texture_handle;
+    uint64_t palette_handle;
+    uint64_t material_handle;
+};
+
+layout(std430, binding = 1) buffer Textures {
+    TextureInformation texture_infos[];
+};
 
 #if defined VERTEX_SHADER
 
 in vec3 in_position;
 
-uniform mat4 m_model;
 uniform mat4 m_camera;
 uniform mat4 m_proj;
 
+#if USE_VOXEL_OBJECT_INSTANCING == 0
+uniform int u_instanceID;
+#else
+int u_instanceID = gl_InstanceID;
+#endif
+
+flat out int v_instanceID;
+
 void main() {
+    mat4 m_model = objects[u_instanceID].m_model;
     mat4 m_view = m_camera * m_model;
-    vec4 p = m_view * vec4(in_position, 1.0);
+    vec4 p = m_view * (vec4(in_position, 1.0) * objects[u_instanceID].m_dimensions);
     gl_Position = m_proj * p;
+    v_instanceID = u_instanceID;
 }
 
 #elif defined FRAGMENT_SHADER
@@ -20,24 +53,19 @@ void main() {
 #include programs/utils.glsl
 #line 22
 
+flat in int v_instanceID;
+#if USE_VOXEL_OBJECT_INSTANCING == 0
 layout(binding = 0) uniform usampler3D u_voxel_data;
 layout(binding = 1) uniform sampler2D u_palette_data;
 layout(binding = 2) uniform sampler2D u_material_data;
+#endif
 layout(binding = 3) uniform sampler2D u_prev_linear_depth;
 uniform mat4 uInvView;
 uniform mat4 uInvProjection;
-uniform mat4 m_model;
-uniform mat4 m_model_inverse;
 uniform mat4 m_camera;
 uniform mat4 m_proj;
-uniform mat4 m_prev_model;
 uniform mat4 m_prev_viewproj;
 uniform int frame_counter;
-
-Box bbox = Box(vec3(0.0), vec3(textureSize(u_voxel_data, 0)));
-vec3 size = bbox.max - bbox.min;
-int MAX_STEPS = int(max(size.x, max(size.y, size.z))) * 3;
-float inv_palette_size = 1.0 / (textureSize(u_palette_data, 0).r);
 
 layout(location = 0) out vec3 u_albedo;
 layout(location = 1) out vec3 u_normal;
@@ -71,6 +99,23 @@ vec2 compute_motion_vector(
 }
 
 void main() {
+    Object object = objects[v_instanceID];
+    mat4 m_model = object.m_model;
+    mat4 m_model_inverse = object.m_model_inverse;
+    mat4 m_prev_model = object.m_prev_model;
+
+    #if USE_VOXEL_OBJECT_INSTANCING == 1
+    TextureInformation texture_info = texture_infos[v_instanceID];
+    usampler3D u_voxel_data = usampler3D(texture_info.voxel_texture_handle);
+    sampler2D u_palette_data = sampler2D(texture_info.palette_handle);
+    sampler2D u_material_data = sampler2D(texture_info.material_handle);
+    #endif
+
+    float inv_palette_size = 1.0 / (textureSize(u_palette_data, 0).r);
+    Box bbox = Box(vec3(0.0), vec3(textureSize(u_voxel_data, 0)));
+    vec3 size = bbox.max - bbox.min;
+    int MAX_STEPS = int(max(size.x, max(size.y, size.z))) * 3;
+
     vec2 screen_uv = gl_FragCoord.xy / SCREEN_DIMENSIONS;
     // TODO(david): Deactivated pixel jittering for now, reactivate once final image TAA is implemented
     Ray camera_ray = compute_camera_ray(screen_uv, uInvProjection, uInvView, frame_counter, 0.0);

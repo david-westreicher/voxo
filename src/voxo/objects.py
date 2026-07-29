@@ -13,6 +13,8 @@ from pyglm.glm import mat4x4 as Mat4  # noqa: N812  # noqa: N812
 from pyglm.glm import quat as Quat  # noqa: N812
 from pyglm.glm import vec3
 
+from voxo.constants import USE_VOXEL_OBJECT_INSTANCING
+
 from .model import Model
 from .utils import Sphere
 
@@ -100,7 +102,6 @@ class Sun(Object):
 @dataclass(kw_only=True)
 class VoxelObject(Object):
     model: Model
-    geometry: VAO | None = None
     last_frame_transform: glm.mat4x4 = field(default_factory=lambda: glm.identity(glm.mat4x4))
     is_dirty = True
     _voxel_texture: Texture3D | None = None
@@ -112,14 +113,10 @@ class VoxelObject(Object):
             self.name = f"{self.model.name}_{OBJECT_ID_COUNTER}"
             OBJECT_ID_COUNTER += 1
         super().__post_init__()
-        self._center_translation: glm.vec3 = -cast("glm.vec3", glm.ceil(glm.vec3(self.model.opengl_dimensions) * 0.5))
+        self._center_translation = -cast("glm.vec3", glm.ceil(glm.vec3(self.model.opengl_dimensions) * 0.5))
         self._center_translation.y = 0
 
     def upload_to_gpu(self, ctx: Context) -> None:
-        self.geometry = geometry.cube(
-            size=self.model.opengl_dimensions,
-            center=(glm.vec3(self.model.opengl_dimensions) * 0.5).to_tuple(),
-        )
         self._voxel_texture = ctx.texture3d(
             self.model.opengl_dimensions,
             data=self.model.voxel_data,
@@ -145,6 +142,11 @@ class VoxelObject(Object):
         self._material_texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
         self._material_texture.repeat_x = False
         self._material_texture.repeat_y = False
+
+        if USE_VOXEL_OBJECT_INSTANCING:
+            self.voxel_texture_handle = self._voxel_texture.get_handle(resident=True)
+            self.material_texture_handle = self._material_texture.get_handle(resident=True)
+            self.palette_texture_handle = self._palette_texture.get_handle(resident=True)
 
     @property
     def center(self) -> glm.vec3:

@@ -50,5 +50,5 @@ class Scene:
                 frustum_cull_spheres(camera.matrix, camera.projection.matrix, bounding_spheres),
                 strict=True,
             )
-            if vis
+            if vis and obj.visible
         ]
