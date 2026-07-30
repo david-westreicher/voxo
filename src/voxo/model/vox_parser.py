@@ -366,6 +366,15 @@ class VoxModel:
             materials=converted_materials,
         )
 
+    def copy(self) -> "VoxModel":
+        return VoxModel(
+            dimensions=self.dimensions,
+            voxels=self.voxels,
+            shape_name=self.shape_name + "_",
+            palette=self.palette,
+            materials=self.materials,
+        )
+
 
 def generate_vox_models(chunk_buffer: list[ChunkContent]) -> dict[str, VoxModel]:  # noqa: C901
     current_size = Size(0, 0, 0)

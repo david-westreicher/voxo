@@ -78,8 +78,9 @@ def compute_camera_ray(ndc: glm.vec2, proj: glm.mat4x4, view: glm.mat4x4) -> Ray
 
 
 def chunk_iters[T](iterator: Iterable[T], size: int) -> Iterator[list[T]]:
+    it = iter(iterator)
     while True:
-        chunk = list(islice(iterator, size))
+        chunk = list(islice(it, size))
         if not chunk:
             break
         yield chunk

@@ -25,7 +25,7 @@ def parse_vox_object(
         full_vox_file_path = level_xml.parent / Path(file).relative_to("MOD")
         vox_file_obj = SimplifiedVoxFile.from_file(full_vox_file_path)
         vox_file_map[file] = vox_file_obj
-    vox_model = vox_file_map[file].get_model(shape)
+    vox_model = vox_file_map[file].get_model(shape).copy()
     vox_model.translation = pos
     vox_model.rotation = rot
     vox_model.shape_name = shape
@@ -88,7 +88,7 @@ def parse_wheel(
     wheel_pos = parse_vec3(xml_wheel.attrib, field="pos") * 10.0
     wheel_rot = glm.quat(glm.radians(parse_vec3(xml_wheel.attrib, field="rot")))
     for xml_vox in xml_wheel.findall("vox"):
-        for vox_obj in  parse_vox_object(xml_vox, vox_file_map, level_xml):
+        for vox_obj in parse_vox_object(xml_vox, vox_file_map, level_xml):
             vox_obj.rotation = wheel_rot * vox_obj.rotation
             vox_obj.translation = wheel_pos + wheel_rot * vox_obj.translation
             yield vox_obj
@@ -134,13 +134,13 @@ def parse_xml_level(level_xml: Path) -> Iterator[VoxModel]:
     vox_file_map: dict[str, SimplifiedVoxFile] = {}
 
     world_body = root.find(".//group[@name='World Body']")
-    assert world_body
-    yield from parse_world_body(world_body, vox_file_map, level_xml)
+    if world_body:
+        yield from parse_world_body(world_body, vox_file_map, level_xml)
 
     props = root.find(".//group[@name='Props']")
-    assert props
-    yield from parse_props(props, vox_file_map, level_xml)
+    if props:
+        yield from parse_props(props, vox_file_map, level_xml)
 
     vehicles = root.find(".//group[@name='Vehicles']")
-    assert vehicles
-    yield from parse_vehicles(vehicles, vox_file_map, level_xml)
+    if vehicles:
+        yield from parse_vehicles(vehicles, vox_file_map, level_xml)

@@ -1,10 +1,39 @@
 import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import BinaryIO
 
 import numpy as np
 
 VoxelInfo = tuple[int, int, int, int]  # x, y, z, color index
+
+
+@dataclass
+class SimplifiedModel:
+    name: str
+    opengl_dimensions: tuple[int, int, int]
+    voxel_data: bytes = field(repr=False)
+    palette_row: int
+    material_row: int
+
+    def write(self, f: BinaryIO) -> None:
+        f.write(struct.pack("<III", *self.opengl_dimensions))
+        f.write(self.voxel_data)
+        f.write(struct.pack("<I", self.palette_row))
+        f.write(struct.pack("<I", self.material_row))
+
+    @staticmethod
+    def from_file(f: BinaryIO, model_name: str) -> "SimplifiedModel":
+        (w, h, d) = struct.unpack("<III", f.read(12))
+        voxel_data = f.read(w * h * d)
+        palette_row, *_ = struct.unpack("<I", f.read(4))
+        material_row, *_ = struct.unpack("<I", f.read(4))
+        return SimplifiedModel(
+            name=model_name,
+            opengl_dimensions=(w, h, d),
+            voxel_data=voxel_data,
+            palette_row=palette_row,
+            material_row=material_row,
+        )
 
 
 @dataclass
@@ -39,6 +68,15 @@ class Model:
             voxel_data=voxel_data,
             palette_data=palette_data,
             material_data=material_data,
+        )
+
+    def simplify(self, palette_row: int, material_row: int) -> SimplifiedModel:
+        return SimplifiedModel(
+            self.name,
+            self.opengl_dimensions,
+            self.voxel_data,
+            palette_row=palette_row,
+            material_row=material_row,
         )
 
 

@@ -1,3 +1,4 @@
+import struct
 from collections.abc import Sequence
 from functools import cached_property
 from typing import cast
@@ -8,9 +9,10 @@ from moderngl_window import geometry
 from moderngl_window.context.base import WindowConfig
 from moderngl_window.scene import Camera
 from pyglm import glm
-from pyglm.glm import mat4x4 as Mat4  # noqa: N812
 
-from .constants import GLOBAL_DEFINE
+from voxo.utils import chunk_iters
+
+from .constants import GLOBAL_DEFINE, MAX_VOXEL_OBJECTS, USE_VOXEL_OBJECT_INSTANCING, VOXEL_OBJECT_COUNT_PER_BATCH
 from .objects import Light, Object, Sun, VoxelObject
 from .rendering import GBuffer
 
@@ -124,15 +126,24 @@ class VoxelRenderer:
     def __init__(self, window: WindowConfig) -> None:
         self.program: Program = window.load_program("programs/gbuffer_create.glsl", defines=GLOBAL_DEFINE)
         self.program.label = "prog_gbuffer_create"
+        self.object_transform_buffer = window.ctx.buffer(reserve=(64 * 3 + 16) * MAX_VOXEL_OBJECTS, dynamic=True)
+        self.object_voxel_texture_handle_buffer = window.ctx.buffer(reserve=(8 * 3) * MAX_VOXEL_OBJECTS, dynamic=True)
+        self.cube = geometry.cube((1, 1, 1), (0.5, 0.5, 0.5))
 
     def render_objects(
         self,
+        voxel_objects: list[VoxelObject],
         camera: Camera,
-        voxel_objects: Sequence[VoxelObject],
-        prev_viewproj: Mat4,
+        prev_viewproj: glm.mat4x4,
         prev_linear_depth_texture: Texture,
         frame_counter: int,
     ) -> None:
+        if len(voxel_objects) == 0:
+            return
+        assert all(obj.texture_information == voxel_objects[0].texture_information for obj in voxel_objects)
+        texture_information = voxel_objects[0].texture_information
+        voxel_objects.sort(key=lambda obj: glm.distance2(camera.position, obj.center))
+
         ctx = self.program.ctx
         self.program["m_proj"].write(camera.projection.matrix)
         self.program["m_prev_viewproj"].write(prev_viewproj)
@@ -140,24 +151,40 @@ class VoxelRenderer:
         self.program["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.program["uInvView"].write(glm.inverse(camera.matrix))
         self.program["frame_counter"].value = frame_counter
-
-        def cam_distance(obj: VoxelObject) -> float:
-            return glm.distance2(camera.position, obj.center)
+        texture_information.palette_texture.use(location=1)
+        texture_information.material_texture.use(location=2)
+        prev_linear_depth_texture.use(location=3)
 
         ctx.enable_only(moderngl.DEPTH_TEST | moderngl.CULL_FACE)
         ctx.cull_face = "front"
-        for voxel_object in sorted(voxel_objects, key=cam_distance):
-            if not voxel_object.visible:
-                continue
-            self.program["m_model"].write(voxel_object.transform)
-            self.program["m_model_inverse"].write(glm.inverse(voxel_object.transform))
-            self.program["m_prev_model"].write(voxel_object.last_frame_transform)
-            voxel_object.voxel_texture.use(location=0)
-            voxel_object.palette_texture.use(location=1)
-            voxel_object.material_texture.use(location=2)
-            prev_linear_depth_texture.use(location=3)
-            assert voxel_object.geometry
-            voxel_object.geometry.render(self.program)
+
+        batched_voxel_objects = chunk_iters(voxel_objects, VOXEL_OBJECT_COUNT_PER_BATCH)
+        for b_voxel_objects in batched_voxel_objects:
+            transform_buffer = []
+            for voxel_object in b_voxel_objects:
+                transform_buffer.append(voxel_object.transform.to_bytes())
+                transform_buffer.append(glm.inverse(voxel_object.transform).to_bytes())
+                transform_buffer.append(voxel_object.last_frame_transform.to_bytes())
+                transform_buffer.append(glm.vec4(*voxel_object.model.opengl_dimensions, 1).to_bytes())
+            self.object_transform_buffer.write(b"".join(transform_buffer))
+            self.object_transform_buffer.bind_to_storage_buffer(binding=0)
+            if USE_VOXEL_OBJECT_INSTANCING:
+                texture_handle_buffer = []
+                for voxel_object in b_voxel_objects:
+                    texture_handle_buffer.append(struct.pack("<Q", voxel_object.voxel_texture_handle))
+                    texture_handle_buffer.append(struct.pack("<I", voxel_object.model.palette_row))
+                    texture_handle_buffer.append(struct.pack("<I", voxel_object.model.material_row))
+                self.object_voxel_texture_handle_buffer.write(b"".join(texture_handle_buffer))
+                self.object_voxel_texture_handle_buffer.bind_to_storage_buffer(binding=1)
+                self.cube.render(self.program, instances=len(b_voxel_objects))
+            else:
+                for i, voxel_object in enumerate(b_voxel_objects):
+                    assert voxel_object.visible
+                    voxel_object.voxel_texture.use(location=0)
+                    self.program["u_instanceID"] = i
+                    self.program["u_palette_row"] = voxel_object.model.palette_row
+                    self.program["u_material_row"] = voxel_object.model.material_row
+                    self.cube.render(self.program)
         ctx.cull_face = "back"
         ctx.disable(moderngl.DEPTH_TEST | moderngl.CULL_FACE)
 
@@ -304,7 +331,7 @@ class VoxelDirectLighting:
         self.framebuffer.use()
         self._setup_uniforms(self.voxel_direct_light, camera, frame_counter)
 
-        self.voxel_direct_sun["occluder_translation"].write(glm.ivec3(occluder.occluder_volume.translation))
+        self.voxel_direct_light["occluder_translation"].write(glm.ivec3(occluder.occluder_volume.translation))
         self.voxel_direct_light["lightPos"].write(light.translation)
         self.voxel_direct_light["lightRadius"] = light.radius
         self.voxel_direct_light["lightColor"].write(light.color * light.intensity)

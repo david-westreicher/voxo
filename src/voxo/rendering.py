@@ -9,7 +9,7 @@ from moderngl_window.scene import Camera
 from pyglm import glm
 
 from .constants import GLOBAL_DEFINE, GLOBAL_OCCLUDER_DIMENSIONS
-from .objects import Object, Sun
+from .objects import Object, Sun, VoxelObject
 
 
 class GBuffer:
@@ -396,6 +396,7 @@ class WireFrameRenderer:
         self.prog = window.load_program("programs/cube_simple.glsl")
         self.prog.label = "prof_cube_simple"
         self.prog["color"].value = 1.0, 1.0, 0.0
+        self.cube = geometry.cube(size=(1, 1, 1), center=(0.5, 0.5, 0.5))
 
     def render(self, camera: Camera, objects: Sequence[Object]) -> None:
         ctx = self.prog.ctx
@@ -409,7 +410,13 @@ class WireFrameRenderer:
             self.prog["m_proj"].write(camera.projection.matrix)
             self.prog["m_model"].write(object_to_render.transform)
             self.prog["m_camera"].write(camera.matrix)
-            object_to_render.geometry.render(self.prog)
+            if object_to_render.geometry is None:
+                assert type(object_to_render) is VoxelObject
+                self.prog["scale"].write(glm.vec3(object_to_render.model.opengl_dimensions))
+                self.cube.render(self.prog)
+            else:
+                self.prog["scale"].write(glm.vec3(1.0))
+                object_to_render.geometry.render(self.prog)
         ctx.wireframe = False
 
 
