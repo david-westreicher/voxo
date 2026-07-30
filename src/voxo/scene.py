@@ -6,7 +6,8 @@ from moderngl import Context
 from moderngl_window.scene.camera import Camera
 from pyglm import glm
 
-from .objects import Light, Sun, VoxelObject, World
+from .model import VoxLight, parse_xml_level
+from .objects import AreaLight, ConeLight, Light, SphereLight, Sun, VoxelObject, World
 from .utils import chunk_iters, frustum_cull_spheres
 
 
@@ -18,7 +19,26 @@ class Scene:
         self.ctx = ctx
 
         self.sun = Sun()
-        self.world = World.from_file(Path("./resources/levels/carib_sandbox.lvl"))
+        # self.world = World.from_file(Path("./resources/levels/carib_sandbox.lvl"))
+        self.world = World.from_file(Path("./test.lvl"))
+        vox_lights = [
+            obj for obj in parse_xml_level(Path("./resources/levels/carib_sandbox/test.xml")) if type(obj) is VoxLight
+        ]
+        for vox_light in vox_lights:
+            assert vox_light.reach > 0.0
+            light: Light = SphereLight()
+            if vox_light.light_type == "area":
+                light = AreaLight(size=vox_light.size)
+            elif vox_light.light_type == "cone":
+                light = ConeLight(penumbra=vox_light.penumbra, reach=vox_light.reach)
+            else:
+                light = SphereLight()
+            light.reach = vox_light.reach
+            light.intensity = vox_light.scale
+            light.translation = vox_light.translation
+            light.rotation = vox_light.rotation
+            light.color = vox_light.color
+            self.add_light(light)
         self.world.texture_information.upload_to_gpu(ctx)
         self.object_generator = chunk_iters(self.world.voxel_objects, 4000)
 

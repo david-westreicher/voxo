@@ -13,7 +13,7 @@ from pyglm import glm
 from voxo.utils import chunk_iters
 
 from .constants import GLOBAL_DEFINE, MAX_VOXEL_OBJECTS, USE_VOXEL_OBJECT_INSTANCING, VOXEL_OBJECT_COUNT_PER_BATCH
-from .objects import Light, Object, Sun, VoxelObject
+from .objects import Light, Object, SphereLight, Sun, VoxelObject
 from .rendering import GBuffer
 
 
@@ -333,8 +333,9 @@ class VoxelDirectLighting:
 
         self.voxel_direct_light["occluder_translation"].write(glm.ivec3(occluder.occluder_volume.translation))
         self.voxel_direct_light["lightPos"].write(light.translation)
-        self.voxel_direct_light["lightRadius"] = light.radius
         self.voxel_direct_light["lightColor"].write(light.color * light.intensity)
+        if type(light) is SphereLight:
+            self.voxel_direct_light["lightRadius"] = light.reach
         gbuffer.smooth_normal_texture.use(location=0)
         gbuffer.depth_texture.use(location=1)
         gbuffer.linear_depth.use(location=2)

@@ -16,7 +16,7 @@ from voxo.constants import USE_VOXEL_OBJECT_INSTANCING
 from voxo.model.vox_parser import VoxModel
 
 from .model import Model, SimplifiedModel
-from .utils import Sphere
+from .utils import Sphere, cone, hemisphere
 
 OBJECT_ID_COUNTER = 0
 
@@ -61,24 +61,76 @@ class Object:
         return Object(name=name, rotation=rotation, translation=translation, scale=scale)
 
 
-@dataclass(init=False, kw_only=True)
+@dataclass(kw_only=True)
 class Light(Object):
-    color: glm.vec3
+    color: glm.vec3 = field(default_factory=lambda: glm.vec3(1.0))
+    proxy_object: VAO | None = None
     intensity: float = 1.0
-    radius: float = 1.0
+    reach: float = 1.0
+    visible: bool = True
 
-    def __init__(self, radius: float = 1.0, light_color: glm.vec3 | None = None, intensity: float = 1.0) -> None:
+
+@dataclass(init=False, kw_only=True)
+class SphereLight(Light):
+    def __init__(self) -> None:
         global OBJECT_ID_COUNTER  # noqa: PLW0603
-        super().__init__(geometry.sphere(1.0), name=f"light_{OBJECT_ID_COUNTER}")
+        super().__init__(geometry=geometry.sphere(1.0), name=f"sphere_light_{OBJECT_ID_COUNTER}")
         OBJECT_ID_COUNTER += 1
-        self.color = light_color or glm.vec3(1.0)
-        self.radius = radius
-        self.intensity = intensity
+        assert self.geometry
+        self.proxy_object = self.geometry
 
     @property
     def transform(self) -> Mat4:
         return cast(
-            "Mat4", glm.translate(self.translation) @ glm.mat4_cast(self.rotation) @ glm.scale(glm.vec3(self.radius))
+            "Mat4",
+            glm.translate(self.translation) @ glm.mat4_cast(self.rotation) @ glm.scale(glm.vec3(self.reach)),
+        )
+
+
+@dataclass(init=False, kw_only=True)
+class AreaLight(Light):
+    size: glm.vec2
+
+    def __init__(self, size: glm.vec2) -> None:
+        global OBJECT_ID_COUNTER  # noqa: PLW0603
+        super().__init__(geometry=geometry.cube(size=(size.x, size.y, 0.1)), name=f"area_light_{OBJECT_ID_COUNTER}")
+        OBJECT_ID_COUNTER += 1
+        self.size = size
+        self.proxy_object = hemisphere(1.0)
+
+    @property
+    def transform(self) -> Mat4:
+        return cast(
+            "Mat4",
+            glm.translate(self.translation)
+            @ glm.mat4_cast(self.rotation)
+            @ glm.rotate(glm.radians(90), glm.vec3(1, 0, 0))
+            @ glm.scale(glm.vec3(self.reach)),
+        )
+
+
+@dataclass(init=False, kw_only=True)
+class ConeLight(Light):
+    penumbra: float = 30.0
+
+    def __init__(self, penumbra: float, reach: float = 1.0) -> None:
+        global OBJECT_ID_COUNTER  # noqa: PLW0603
+        super().__init__(
+            geometry=cone(angle=penumbra * 2.0, max_distance=reach),
+            name=f"area_light_{OBJECT_ID_COUNTER}",
+        )
+        OBJECT_ID_COUNTER += 1
+        self.penumbra = penumbra
+        assert self.geometry
+        self.proxy_object = self.geometry
+
+    @property
+    def transform(self) -> Mat4:
+        return cast(
+            "Mat4",
+            glm.translate(self.translation)
+            @ glm.mat4_cast(self.rotation)
+            @ glm.rotate(glm.radians(90), glm.vec3(1, 0, 0)),
         )
 
 

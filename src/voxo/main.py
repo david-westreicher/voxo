@@ -40,7 +40,7 @@ class CameraWindow(moderngl_window.WindowConfig):  # type: ignore[misc, name-def
             fov=CAMERA_FOV,
         )
         self.camera.mouse_sensitivity = 0.05
-        self.camera.velocity = 500.0
+        self.camera.velocity = 50.0
         self.camera_enabled = True
 
     def on_key_event(self, key: Any, action: Any, modifiers: KeyModifiers) -> None:
@@ -60,7 +60,7 @@ class CameraWindow(moderngl_window.WindowConfig):  # type: ignore[misc, name-def
                 self.timer.toggle_pause()
 
         if action == keys.ACTION_RELEASE and key == keys.LEFT_SHIFT:
-            self.camera.velocity = 500.0
+            self.camera.velocity = 50.0
 
     def on_mouse_position_event(self, x: int, y: int, dx: int, dy: int) -> None:  # noqa: ARG002
         if self.camera_enabled:

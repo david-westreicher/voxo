@@ -16,7 +16,7 @@ from moderngl_window.scene import Camera
 from pyglm import glm
 
 from .constants import SCREEN_DIMENSIONS
-from .objects import Light, Object, Sun, VoxelObject
+from .objects import Object, SphereLight, Sun, VoxelObject
 from .scene import Scene
 from .utils import compute_camera_ray, ray_sphere_intersection
 
@@ -308,7 +308,7 @@ class ObjectsViewer:
                         if clicked:
                             self.selected_object_state = ("Lights", i)
                     if imgui.button("Add Light", size=(0, 0)):
-                        new_light = Light()
+                        new_light = SphereLight()
                         self.scene.add_light(new_light)
                         self.selected_object_state = ("Lights", self.scene.lights.index(new_light))
                 if imgui.collapsing_header(f"Suns ({len(self.scene.suns)})"):
@@ -386,7 +386,7 @@ class ObjectsViewer:
                             imgui.text("transparency")
                         imgui.end_child()
 
-                    if isinstance(self.selected_object, Light):
+                    if isinstance(self.selected_object, SphereLight):
                         imgui.separator_text("Light")
                         _, new_col = imgui.color_edit3("color", self.selected_object.color.to_list())
                         self.selected_object.color = glm.vec3(new_col)
@@ -398,9 +398,9 @@ class ObjectsViewer:
                             v_max=20_000,
                             format="%.0f",
                         )
-                        _, self.selected_object.radius = imgui.slider_float(
-                            "radius",
-                            self.selected_object.radius,
+                        _, self.selected_object.reach = imgui.slider_float(
+                            "reach",
+                            self.selected_object.reach,
                             v_min=0.05,
                             v_max=20,
                             format="%.2f",

@@ -9,7 +9,7 @@ from moderngl_window.scene import Camera
 from pyglm import glm
 
 from .constants import GLOBAL_DEFINE, GLOBAL_OCCLUDER_DIMENSIONS
-from .objects import Object, Sun, VoxelObject
+from .objects import Light, Object, Sun, VoxelObject
 
 
 class GBuffer:
@@ -398,7 +398,7 @@ class WireFrameRenderer:
         self.prog["color"].value = 1.0, 1.0, 0.0
         self.cube = geometry.cube(size=(1, 1, 1), center=(0.5, 0.5, 0.5))
 
-    def render(self, camera: Camera, objects: Sequence[Object]) -> None:
+    def render(self, camera: Camera, objects: Sequence[Object | Light]) -> None:
         ctx = self.prog.ctx
         ctx.enable_only(moderngl.CULL_FACE)
         ctx.wireframe = True
@@ -416,7 +416,13 @@ class WireFrameRenderer:
                 self.cube.render(self.prog)
             else:
                 self.prog["scale"].write(glm.vec3(1.0))
-                object_to_render.geometry.render(self.prog)
+                if isinstance(object_to_render, Light):
+                    ctx.enable_only(moderngl.CULL_FACE)
+                    ctx.cull_face = "front"
+                    object_to_render.proxy_object.render(self.prog)
+                    ctx.disable(moderngl.CULL_FACE)
+                else:
+                    object_to_render.geometry.render(self.prog)
         ctx.wireframe = False
 
 

@@ -4,14 +4,16 @@ from pathlib import Path
 import moderngl_window
 
 from .main import VoxoWindow
-from .model import parse_xml_level
+from .model import VoxLight, VoxModel, parse_xml_level
 from .objects import World
 
 
 def convert_td_to_level(input_level: Path, output_level: Path | None = None) -> None:
     if output_level is None:
         output_level = input_level.parent.parent / input_level.parent.with_suffix(".lvl").name
-    vox_models = list(parse_xml_level(input_level))
+    vox_objects = list(parse_xml_level(input_level))
+    vox_models = [obj for obj in vox_objects if type(obj) is VoxModel]
+    vox_lights = [obj for obj in vox_objects if type(obj) is VoxLight]
     World.from_vox_models(vox_models).write(output_level)
 
 
