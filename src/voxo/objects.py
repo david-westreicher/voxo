@@ -184,7 +184,7 @@ class TextureInformation:
 
 @dataclass(kw_only=True)
 class VoxelObject(Object):
-    model: Model | SimplifiedModel  # TODO(david): should only used SimplifiedModel
+    model: SimplifiedModel
     texture_information: TextureInformation
     last_frame_transform: glm.mat4x4 = field(default_factory=lambda: glm.identity(glm.mat4x4))
     is_dirty = True
@@ -271,19 +271,12 @@ class VoxelObject(Object):
 
     def write(self, f: BinaryIO) -> None:
         super().write(f)
-        if isinstance(self.model, SimplifiedModel):
-            f.write(struct.pack("B", 1))
-        elif isinstance(self.model, Model):
-            f.write(struct.pack("B", 0))
-        else:
-            raise NotImplementedError
-        self.model.serialize(f)
+        self.model.write(f)
 
     @staticmethod
     def from_file(f: BinaryIO, texture_information: TextureInformation) -> "VoxelObject":  # type:ignore[override]
         obj = Object.from_file(f)
-        is_simplified_model, *_ = struct.unpack("B", f.read(1))
-        model = SimplifiedModel.deserialize(f, obj.name) if is_simplified_model else Model.deserialize(f, obj.name)
+        model = SimplifiedModel.from_file(f, obj.name)
         return VoxelObject(
             name=obj.name,
             texture_information=texture_information,

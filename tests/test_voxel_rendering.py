@@ -21,7 +21,7 @@ def create_cube(dimensions: tuple[int, int, int], ctx: Context) -> VoxelObject:
             ],
             palette=[(0, 0, 0)],
             materials=[Material()],
-        ),
+        ).simplify(0, 0),
     )
     vox_obj.upload_to_gpu(ctx)
     return vox_obj
