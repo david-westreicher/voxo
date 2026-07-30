@@ -16,8 +16,8 @@ layout(std430, binding = 0) buffer Instances {
 
 struct TextureInformation {
     uint64_t voxel_texture_handle;
-    uint64_t palette_handle;
-    uint64_t material_handle;
+    uint palette_row;
+    uint material_row;
 };
 
 layout(std430, binding = 1) buffer Textures {
@@ -56,9 +56,11 @@ void main() {
 flat in int v_instanceID;
 #if USE_VOXEL_OBJECT_INSTANCING == 0
 layout(binding = 0) uniform usampler3D u_voxel_data;
-layout(binding = 1) uniform sampler2D u_palette_data;
-layout(binding = 2) uniform sampler2D u_material_data;
+uniform int u_palette_row;
+uniform int u_material_row;
 #endif
+layout(binding = 1) uniform sampler2D u_full_palette_texture;
+layout(binding = 2) uniform sampler2D u_full_material_texture;
 layout(binding = 3) uniform sampler2D u_prev_linear_depth;
 uniform mat4 uInvView;
 uniform mat4 uInvProjection;
@@ -107,11 +109,13 @@ void main() {
     #if USE_VOXEL_OBJECT_INSTANCING == 1
     TextureInformation texture_info = texture_infos[v_instanceID];
     usampler3D u_voxel_data = usampler3D(texture_info.voxel_texture_handle);
-    sampler2D u_palette_data = sampler2D(texture_info.palette_handle);
-    sampler2D u_material_data = sampler2D(texture_info.material_handle);
+    uint palette_row = texture_info.palette_row;
+    uint material_row = texture_info.material_row;
+    #else
+    int palette_row = u_palette_row;
+    int material_row = u_material_row;
     #endif
 
-    float inv_palette_size = 1.0 / (textureSize(u_palette_data, 0).r);
     Box bbox = Box(vec3(0.0), vec3(textureSize(u_voxel_data, 0)));
     vec3 size = bbox.max - bbox.min;
     int MAX_STEPS = int(max(size.x, max(size.y, size.z))) * 3;
@@ -131,19 +135,25 @@ void main() {
         Ray bbox_ray = Ray(bbox_hit, local_ray.direction);
         Hit hit = dda(bbox_ray, MAX_STEPS, u_voxel_data, bbox);
         if (hit.hit) {
-            ivec2 palette_coord = ivec2(voxelmap(hit.voxel, bbox, u_voxel_data), 0);
-            vec3 world_space_hit = (m_model * vec4(hit.position, 1.0)).xyz;
-            vec4 material = texelFetch(u_material_data, palette_coord, 0).rgba;
+            uint voxel_material = voxelmap(hit.voxel, bbox, u_voxel_data);
+
+            ivec2 material_coord = ivec2(voxel_material, material_row);
+            vec4 material = texelFetch(u_full_material_texture, material_coord, 0).rgba;
             if (material.a < 0.0) {
                 // TODO(david): glass rendering, maybe skip voxels in dda
                 discard;
             }
-            u_albedo = texelFetch(u_palette_data, palette_coord, 0).rgb;
+            u_material = material;
+
+            ivec2 palette_coord = ivec2(voxel_material, palette_row);
+            u_albedo = texelFetch(u_full_palette_texture, palette_coord, 0).rgb;
+
+            vec3 world_space_hit = (m_model * vec4(hit.position, 1.0)).xyz;
+            gl_FragDepth = worldPosToDepth(world_space_hit);
+
             u_normal = normalize((m_model * vec4(hit.normal, 0.0)).xyz);
             u_linear_depth = distance(local_ray.origin, hit.position);
-            u_material = material;
             u_motion_vector = compute_motion_vector(screen_uv, hit.position, m_prev_model, m_prev_viewproj);
-            gl_FragDepth = worldPosToDepth(world_space_hit);
         } else {
             discard;
         }

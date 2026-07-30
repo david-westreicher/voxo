@@ -191,8 +191,8 @@ class VoxoWindow(CameraWindow):
             gbuffer = self.gbuffer.current
             gbuffer.start()
             self.voxel_renderer.render_objects(
-                self.synced_camera,
                 visible_objects,
+                self.synced_camera,
                 self.last_frame_projview,
                 self.gbuffer.current.linear_depth,
                 self.frame_counter,

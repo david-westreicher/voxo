@@ -8,13 +8,14 @@ in vec3 in_normal;
 uniform mat4 m_model;
 uniform mat4 m_camera;
 uniform mat4 m_proj;
+uniform vec3 scale;
 
 out vec3 pos;
 out vec3 normal;
 
 void main() {
     mat4 m_view = m_camera * m_model;
-    vec4 p = m_view * vec4(in_position, 1.0);
+    vec4 p = m_view * vec4(in_position * scale, 1.0);
     gl_Position = m_proj * p;
     mat3 m_normal = inverse(transpose(mat3(m_view)));
     normal = m_normal * normalize(in_normal);

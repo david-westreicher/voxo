@@ -5,13 +5,14 @@ from moderngl_window.context.base.window import WindowConfig
 from pyglm import glm
 
 from voxo.model.model import Material, generate_model
-from voxo.objects import VoxelObject
+from voxo.objects import TextureInformation, VoxelObject
 from voxo.voxel_rendering import GlobalOccluder
 
 
 def create_cube(dimensions: tuple[int, int, int], ctx: Context) -> VoxelObject:
     vox_obj = VoxelObject(
         name="",
+        texture_information=TextureInformation(),
         model=generate_model(
             name="",
             dimensions=dimensions,

@@ -8,7 +8,7 @@ from typing import cast
 import moderngl
 import numpy as np
 from imgui_bundle import ImVec2, ImVec4, imgui, implot
-from moderngl import Context, Program, Query, Texture, Uniform
+from moderngl import Context, Framebuffer, Program, Query, Texture, Uniform
 from moderngl_window import geometry
 from moderngl_window.context.base.window import WindowConfig
 from moderngl_window.integrations.imgui_bundle import ModernglWindowRenderer
@@ -16,7 +16,6 @@ from moderngl_window.scene import Camera
 from pyglm import glm
 
 from .constants import SCREEN_DIMENSIONS
-from .model import parse_text_model
 from .objects import Light, Object, Sun, VoxelObject
 from .scene import Scene
 from .utils import compute_camera_ray, ray_sphere_intersection
@@ -256,19 +255,32 @@ class ObjectsViewer:
         self.selected_object_state: tuple[str, int] | None = None
         self.window = window
 
+        self.palette_texture = window.ctx.texture(size=(256, 1), components=3, dtype="f1")
+        self.palette_texture.label = "framebuffer_debug_objects_viewer_palette"
+        self.palette_texture.filter = moderngl.NEAREST, moderngl.NEAREST
+        self.framebuffer_palette = window.ctx.framebuffer(color_attachments=[self.palette_texture])
+        self.framebuffer_palette.label = "framebuffer_debug_objects_viewer_palette"
+
         self.material_texture = window.ctx.texture(size=(256, 5), components=4, dtype="f2")
+        self.material_texture.label = "framebuffer_debug_objects_viewer_material"
         self.material_texture.filter = moderngl.NEAREST, moderngl.NEAREST
-        self.framebuffer = window.ctx.framebuffer(color_attachments=[self.material_texture])
-        self.framebuffer.label = "framebuffer_debug_objects_viewer"
+        self.framebuffer_material = window.ctx.framebuffer(color_attachments=[self.material_texture])
+        self.framebuffer_material.label = "framebuffer_debug_objects_viewer_material"
+
         self.program = window_cfg.load_program("programs/debug_objects_viewer_material.glsl")
         self.program.label = "prog_debug_objects_viewer_material"
         self.quad = geometry.quad_fs(normals=False, uvs=True)
         self.ctx = window.ctx
 
-    def render_into_material_texture(self, texture: Texture) -> None:
+    def render_into_texture(
+        self, framebuffer: Framebuffer, texture: Texture, texture_row: int, texture_count: int
+    ) -> None:
         prev_fbo = self.ctx.fbo
-        self.framebuffer.use()
+        framebuffer.use()
         texture.use(location=0)
+        self.program["is_material"] = framebuffer == self.framebuffer_material
+        self.program["material_row"] = texture_row
+        self.program["material_count"] = texture_count
         self.quad.render(self.program)
         prev_fbo.use()
 
@@ -279,11 +291,8 @@ class ObjectsViewer:
                     self.draw_model_file_tree(item)
                     imgui.tree_pop()
             elif item.suffix.lower() == ".txt":
-                clicked, _ = imgui.selectable(str(item.name), p_selected=False)
-                if clicked:
-                    new_obj = VoxelObject(model=parse_text_model(item))
-                    self.scene.add_voxel_object(new_obj)
-                    self.selected_object_state = ("Voxos", self.scene.voxel_objects.index(new_obj))
+                clicked, _ = imgui.selectable(str(item.name), p_selected=False)  # noqa: RUF059
+                # TODO(david): dynamically add objects to the scene, currently the renderer only supports one world
 
     def render(self) -> None:  # noqa: C901, PLR0912, PLR0915
         if imgui.begin("Objects", p_open=True):
@@ -337,12 +346,27 @@ class ObjectsViewer:
                         imgui.separator_text("Dimensions")
                         dim = self.selected_object.model.opengl_dimensions
                         _, _ = imgui.drag_float3("##", list(dim), v_speed=0.0, v_min=-10, v_max=10, format="%.0f")
+
                         imgui.separator_text("Palette")
-                        self.window.register_texture(self.selected_object.palette_texture)
-                        imgui.image(self.selected_object.palette_texture.glo, (512, 10))
+                        self.render_into_texture(
+                            self.framebuffer_palette,
+                            self.selected_object.texture_information.palette_texture,
+                            texture_row=self.selected_object.model.palette_row,
+                            texture_count=self.selected_object.texture_information.palette_row_sizes[
+                                self.selected_object.model.palette_row
+                            ],
+                        )
+                        imgui.image(self.palette_texture.glo, (512, 10))
+
                         imgui.separator_text("Materials")
-                        self.window.register_texture(self.selected_object.material_texture)
-                        self.render_into_material_texture(self.selected_object.material_texture)
+                        self.render_into_texture(
+                            self.framebuffer_material,
+                            self.selected_object.texture_information.material_texture,
+                            texture_row=self.selected_object.model.material_row,
+                            texture_count=self.selected_object.texture_information.material_row_sizes[
+                                self.selected_object.model.material_row
+                            ],
+                        )
                         if imgui.begin_child("material_texture", size=(512, 0)):
                             pos = imgui.get_cursor_screen_pos()
                             imgui.image(self.material_texture.glo, (512, 80))
@@ -521,6 +545,7 @@ class DebugView(ModernglWindowRenderer):
         self.register_texture(self.texture_viewer.preview_texture)
         self.objects_viewer = ObjectsViewer(scene, self, window)
         self.register_texture(self.objects_viewer.material_texture)
+        self.register_texture(self.objects_viewer.palette_texture)
         self.shader_viewer = ShaderViewer(shaders)
         self.settings = SettingsViewer()
         self.scene = scene
