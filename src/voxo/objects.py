@@ -211,7 +211,7 @@ class AreaLight(Light):
             glm.translate(self.translation)  # type:ignore[return-value]
             @ glm.mat4_cast(self.rotation)
             @ glm.rotate(glm.radians(90), glm.vec3(1, 0, 0))
-            @ glm.scale(glm.vec3(self.size.x, 1.0, self.size.y)),
+            @ glm.scale(glm.vec3(self.size.x, 1.0, self.size.y))
         )
 
     @property

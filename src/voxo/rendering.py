@@ -110,6 +110,8 @@ class PostProcessing:
     def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int]) -> None:  # type: ignore[name-defined]
         self.final_texture = window.ctx.texture(size=size, components=3, dtype="f2")
         self.final_texture.label = "tex2d_postprocessing_final"
+        self.final_texture.repeat_x = False
+        self.final_texture.repeat_y = False
         self.framebuffer = window.ctx.framebuffer(color_attachments=[self.final_texture])
         self.framebuffer.label = "framebuffer_postprocessing"
 

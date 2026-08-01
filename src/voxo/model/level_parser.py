@@ -40,7 +40,7 @@ def parse_light(xml_light: ET.Element) -> Iterator[VoxLight]:
         rotation=glm.quat(glm.radians(parse_vec3(xml_light.attrib, field="rot"))),
         color=parse_vec3(xml_light.attrib, field="color"),
         reach=float(xml_light.attrib.get("reach", 0.0)) * 10.0,
-        unshadowed=float(xml_light.attrib.get("unshadowed", 0.0)) * 10.0,
+        unshadowed=float(xml_light.attrib.get("unshadowed", 0.0)) * 20.0,
         glare=float(xml_light.attrib.get("glare", 0.0)),
         scale=float(xml_light.attrib.get("scale", 0.0)),
         angle=float(xml_light.attrib.get("angle", 0.0)),

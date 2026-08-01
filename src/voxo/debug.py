@@ -404,7 +404,7 @@ class ObjectsViewer:
                             "reach",
                             self.selected_object.reach,
                             v_min=1.0,
-                            v_max=200,
+                            v_max=500,
                             format="%.2f",
                         )
                         _, self.selected_object.unshadowed = imgui.slider_float(
