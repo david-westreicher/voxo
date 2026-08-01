@@ -1,21 +1,20 @@
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import BinaryIO, cast
+from typing import BinaryIO
 
 import moderngl
 from moderngl import Context, Texture3D
 from moderngl_window import geometry
 from moderngl_window.opengl.vao import VAO
 from pyglm import glm
-from pyglm.glm import mat4x4 as Mat4  # noqa: N812  # noqa: N812
+from pyglm.glm import mat4x4, vec3
 from pyglm.glm import quat as Quat  # noqa: N812
-from pyglm.glm import vec3
 
-from voxo.constants import USE_VOXEL_OBJECT_INSTANCING
-from voxo.model.vox_parser import VoxModel
-
+from .constants import LIGHT_TYPE_NUM_AREA, LIGHT_TYPE_NUM_CONE, LIGHT_TYPE_NUM_SPHERE, USE_VOXEL_OBJECT_INSTANCING
 from .model import Model, SimplifiedModel
+from .model.level_parser import VoxLight
+from .model.vox_parser import VoxModel
 from .utils import Sphere, cone, hemisphere
 
 OBJECT_ID_COUNTER = 0
@@ -37,11 +36,8 @@ class Object:
             OBJECT_ID_COUNTER += 1
 
     @property
-    def transform(self) -> Mat4:
-        return cast("Mat4", glm.translate(self.translation) @ glm.mat4_cast(self.rotation) @ glm.scale(self.scale))
-
-    def rotate(self, angle: float, axis: glm.vec3) -> None:
-        self.rotation = cast("Quat", glm.rotate(self.rotation, angle, axis))
+    def transform(self) -> mat4x4:
+        return glm.translate(self.translation) @ glm.mat4_cast(self.rotation) @ glm.scale(self.scale)  # type:ignore[return-value]
 
     def write(self, f: BinaryIO) -> None:
         name_bytes = self.name.encode()
@@ -64,27 +60,135 @@ class Object:
 @dataclass(kw_only=True)
 class Light(Object):
     color: glm.vec3 = field(default_factory=lambda: glm.vec3(1.0))
-    proxy_object: VAO | None = None
+    proxy_geometry: VAO | None = None
     intensity: float = 1.0
     reach: float = 1.0
+    unshadowed: float = 0.0
     visible: bool = True
+
+    def upload_to_gpu(self) -> None: ...
+
+    @property
+    def proxy_transform(self) -> mat4x4:
+        return self.transform
+
+    @staticmethod
+    def from_vox_light(vox_light: VoxLight) -> "Light":
+        light: Light | None = None
+        if vox_light.light_type == "sphere":
+            light = SphereLight()
+        elif vox_light.light_type == "cone":
+            light = ConeLight(vox_light.penumbra)
+        elif vox_light.light_type == "area":
+            light = AreaLight(vox_light.size)
+        else:
+            raise NotImplementedError(vox_light)
+        assert light
+        light.translation = vox_light.translation
+        light.rotation = vox_light.rotation
+        light.color = vox_light.color
+        light.intensity = vox_light.scale * 0.1
+        light.reach = vox_light.reach
+        light.unshadowed = vox_light.unshadowed
+        return light
+
+    def write(self, f: BinaryIO) -> None:
+        super().write(f)
+        f.write(self.color.to_bytes())
+        f.write(struct.pack("f", self.intensity))
+        f.write(struct.pack("f", self.reach))
+        f.write(struct.pack("f", self.unshadowed))
+
+    @staticmethod
+    def from_file(f: BinaryIO) -> "Light":
+        light_type, *_ = struct.unpack("<I", f.read(4))
+        obj = Object.from_file(f)
+        color = glm.vec3.from_bytes(f.read(12))
+        intensity, *_ = struct.unpack("f", f.read(4))
+        reach, *_ = struct.unpack("f", f.read(4))
+        unshadowed, *_ = struct.unpack("f", f.read(4))
+        if light_type == LIGHT_TYPE_NUM_SPHERE:
+            light = SphereLight.from_file(f)
+        elif light_type == LIGHT_TYPE_NUM_CONE:
+            light = ConeLight.from_file(f)
+        elif light_type == LIGHT_TYPE_NUM_AREA:
+            light = AreaLight.from_file(f)
+        else:
+            raise NotImplementedError
+        light.name = obj.name
+        light.translation = obj.translation
+        light.rotation = obj.rotation
+        light.color = color
+        light.intensity = intensity
+        light.reach = reach
+        light.unshadowed = unshadowed
+        return light
 
 
 @dataclass(init=False, kw_only=True)
 class SphereLight(Light):
     def __init__(self) -> None:
         global OBJECT_ID_COUNTER  # noqa: PLW0603
-        super().__init__(geometry=geometry.sphere(1.0), name=f"sphere_light_{OBJECT_ID_COUNTER}")
+        super().__init__(name=f"sphere_light_{OBJECT_ID_COUNTER}")
         OBJECT_ID_COUNTER += 1
-        assert self.geometry
-        self.proxy_object = self.geometry
+
+    def upload_to_gpu(self) -> None:
+        self.geometry = geometry.sphere(1.0)
+        self.proxy_geometry = self.geometry
 
     @property
-    def transform(self) -> Mat4:
-        return cast(
-            "Mat4",
-            glm.translate(self.translation) @ glm.mat4_cast(self.rotation) @ glm.scale(glm.vec3(self.reach)),
+    def transform(self) -> mat4x4:
+        return glm.translate(self.translation) @ glm.mat4_cast(self.rotation) @ glm.scale(glm.vec3(self.reach))  # type:ignore[return-value]
+
+    def write(self, f: BinaryIO) -> None:
+        f.write(struct.pack("<I", LIGHT_TYPE_NUM_SPHERE))
+        super().write(f)
+
+    @staticmethod
+    def from_file(_: BinaryIO) -> "Light":
+        return SphereLight()
+
+
+@dataclass(init=False, kw_only=True)
+class ConeLight(Light):
+    penumbra: float
+
+    def __init__(self, penumbra: float) -> None:
+        global OBJECT_ID_COUNTER  # noqa: PLW0603
+        super().__init__(name=f"cone_light_{OBJECT_ID_COUNTER}")
+        OBJECT_ID_COUNTER += 1
+        self.penumbra = penumbra
+
+    def upload_to_gpu(self) -> None:
+        self.geometry = geometry.cube(size=(0.1, 0.1, 2.0), center=(0, 0, 1))
+        self.proxy_geometry = cone(angle=self.penumbra * 2.0, max_distance=1.0, rings=2)
+
+    @property
+    def transform(self) -> mat4x4:
+        return glm.translate(self.translation) @ glm.mat4_cast(self.rotation)  # type:ignore[return-value]
+
+    @property
+    def proxy_transform(self) -> mat4x4:
+        return (
+            glm.translate(self.translation)  # type:ignore[return-value]
+            @ glm.mat4_cast(self.rotation)
+            @ glm.rotate(glm.radians(90), glm.vec3(1, 0, 0))
+            @ glm.scale(glm.vec3(self.reach))
         )
+
+    @property
+    def direction(self) -> glm.vec3:
+        return glm.normalize(self.rotation @ glm.vec3(0, 0, -1))  # type:ignore[return-value]
+
+    def write(self, f: BinaryIO) -> None:
+        f.write(struct.pack("<I", LIGHT_TYPE_NUM_CONE))
+        super().write(f)
+        f.write(struct.pack("f", self.penumbra))
+
+    @staticmethod
+    def from_file(f: BinaryIO) -> "Light":
+        penumbra, *_ = struct.unpack("f", f.read(4))
+        return ConeLight(penumbra=penumbra)
 
 
 @dataclass(init=False, kw_only=True)
@@ -93,45 +197,55 @@ class AreaLight(Light):
 
     def __init__(self, size: glm.vec2) -> None:
         global OBJECT_ID_COUNTER  # noqa: PLW0603
-        super().__init__(geometry=geometry.cube(size=(size.x, size.y, 0.1)), name=f"area_light_{OBJECT_ID_COUNTER}")
+        super().__init__(name=f"area_light_{OBJECT_ID_COUNTER}")
         OBJECT_ID_COUNTER += 1
         self.size = size
-        self.proxy_object = hemisphere(1.0)
+
+    def upload_to_gpu(self) -> None:
+        self.geometry = geometry.cube(size=(1.0, 0.001, 1.0))
+        self.proxy_geometry = hemisphere(1.0)
 
     @property
-    def transform(self) -> Mat4:
-        return cast(
-            "Mat4",
-            glm.translate(self.translation)
+    def transform(self) -> mat4x4:
+        return (
+            glm.translate(self.translation)  # type:ignore[return-value]
             @ glm.mat4_cast(self.rotation)
             @ glm.rotate(glm.radians(90), glm.vec3(1, 0, 0))
-            @ glm.scale(glm.vec3(self.reach)),
+            @ glm.scale(glm.vec3(self.size.x, 1.0, self.size.y)),
         )
-
-
-@dataclass(init=False, kw_only=True)
-class ConeLight(Light):
-    penumbra: float = 30.0
-
-    def __init__(self, penumbra: float, reach: float = 1.0) -> None:
-        global OBJECT_ID_COUNTER  # noqa: PLW0603
-        super().__init__(
-            geometry=cone(angle=penumbra * 2.0, max_distance=reach),
-            name=f"area_light_{OBJECT_ID_COUNTER}",
-        )
-        OBJECT_ID_COUNTER += 1
-        self.penumbra = penumbra
-        assert self.geometry
-        self.proxy_object = self.geometry
 
     @property
-    def transform(self) -> Mat4:
-        return cast(
-            "Mat4",
-            glm.translate(self.translation)
+    def proxy_transform(self) -> mat4x4:
+        return (
+            glm.translate(self.translation)  # type:ignore[return-value]
             @ glm.mat4_cast(self.rotation)
-            @ glm.rotate(glm.radians(90), glm.vec3(1, 0, 0)),
+            @ glm.rotate(glm.radians(90), glm.vec3(1, 0, 0))
+            @ glm.scale(glm.vec3(self.reach))
         )
+
+    @property
+    def area_light_matrix(self) -> glm.mat3x3:
+        center = self.translation
+        size = self.size
+        normal = glm.mat4_cast(self.rotation) @ glm.rotate(glm.radians(90), glm.vec3(1, 0, 0)) @ glm.vec3(0, 1, 0)
+        normal = glm.normalize(normal)  # type:ignore[call-overload]
+        tangent = glm.vec3(0, 1, 0) if abs(normal.y) < 0.999 else glm.vec3(1, 0, 0)
+
+        right = glm.normalize(glm.cross(tangent, normal))
+        up = glm.normalize(glm.cross(normal, right))
+        right *= size.x
+        up *= size.y
+        return glm.mat3(right, up, center)  # type:ignore[call-overload, no-any-return]
+
+    def write(self, f: BinaryIO) -> None:
+        f.write(struct.pack("<I", LIGHT_TYPE_NUM_AREA))
+        super().write(f)
+        f.write(self.size.to_bytes())
+
+    @staticmethod
+    def from_file(f: BinaryIO) -> "Light":
+        size = glm.vec2.from_bytes(f.read(8))
+        return AreaLight(size=size)
 
 
 @dataclass(init=False, kw_only=True)
@@ -146,9 +260,9 @@ class Sun(Object):
         self.direction = glm.normalize(glm.vec3(1.0, 1.0, 1.0))
 
     @property
-    def transform(self) -> Mat4:
+    def transform(self) -> mat4x4:
         rot = glm.inverse(glm.quatLookAt(self.direction, glm.vec3(0, -1, 0)))
-        return cast("Mat4", glm.translate(self.translation) @ rot @ glm.scale(glm.vec3(self.radius)))
+        return glm.translate(self.translation) @ rot @ glm.scale(glm.vec3(self.radius))  # type:ignore[return-value]
 
 
 class TextureInformation:
@@ -248,7 +362,7 @@ class VoxelObject(Object):
             self.name = f"{self.model.name}_{OBJECT_ID_COUNTER}"
             OBJECT_ID_COUNTER += 1
         super().__post_init__()
-        self._center_translation = -cast("glm.vec3", glm.ceil(glm.vec3(self.model.opengl_dimensions) * 0.5))
+        self._center_translation: glm.vec3 = -glm.ceil(glm.vec3(self.model.opengl_dimensions) * 0.5)  # type:ignore[assignment]
         self._center_translation.y = 0
 
     def upload_to_gpu(self, ctx: Context) -> None:
@@ -272,7 +386,7 @@ class VoxelObject(Object):
     @property
     def center(self) -> glm.vec3:
         dim = glm.vec4(glm.vec3(self.model.opengl_dimensions) * 0.5, 1.0)  # type:ignore[call-overload]
-        pos = cast("glm.vec4", self.transform * dim)
+        pos = self.transform * dim
         pos = pos / pos.w
         return glm.vec3(pos)
 
@@ -296,8 +410,8 @@ class VoxelObject(Object):
         for corner in corners:
             world = glm.vec3(self.transform * corner)
 
-            aabb_min = cast("glm.vec3", glm.min(aabb_min, world))
-            aabb_max = cast("glm.vec3", glm.max(aabb_max, world))
+            aabb_min = glm.min(aabb_min, world)  # type:ignore[assignment]
+            aabb_max = glm.max(aabb_max, world)  # type:ignore[assignment]
 
         return aabb_min, aabb_max
 
@@ -312,13 +426,12 @@ class VoxelObject(Object):
         return self._voxel_texture
 
     @property
-    def transform(self) -> Mat4:
-        return cast(
-            "Mat4",
-            glm.translate(self.translation)
+    def transform(self) -> mat4x4:
+        return (
+            glm.translate(self.translation)  # type:ignore[return-value]
             @ glm.mat4_cast(self.rotation)
             @ glm.scale(self.scale)
-            @ glm.translate(self._center_translation),
+            @ glm.translate(self._center_translation)
         )
 
     def write(self, f: BinaryIO) -> None:
@@ -370,10 +483,11 @@ def generate_material_texture(materials: list[bytes]) -> tuple[bytes, dict[bytes
 class World:
     def __init__(self) -> None:
         self.voxel_objects: list[VoxelObject] = []
+        self.lights: list[Light] = []
         self.texture_information = TextureInformation()
 
     @staticmethod
-    def from_vox_models(vox_models: list[VoxModel]) -> "World":
+    def from_vox_objects(vox_models: list[VoxModel], vox_lights: list[VoxLight]) -> "World":
         world = World()
         models = [vox_model.to_model() for vox_model in vox_models]
         world.texture_information, palette_row_mapping, material_row_mapping = TextureInformation.from_models(models)
@@ -389,6 +503,9 @@ class World:
                     translation=vox_model.translation,
                 )
             )
+        # TODO(david): support capsule lights
+        supported_lights = [vox_light for vox_light in vox_lights if vox_light.light_type in ["sphere", "cone", "area"]]
+        world.lights = [Light.from_vox_light(vox_light) for vox_light in supported_lights]
         return world
 
     @staticmethod
@@ -396,9 +513,15 @@ class World:
         world = World()
         with world_file.open("rb", buffering=1024 * 1024 * 10) as f:
             world.texture_information = TextureInformation.from_file(f)
+
             obj_num, *_ = struct.unpack("<I", f.read(4))
             for _ in range(obj_num):
                 world.voxel_objects.append(VoxelObject.from_file(f, world.texture_information))
+
+            obj_num, *_ = struct.unpack("<I", f.read(4))
+            for _ in range(obj_num):
+                world.lights.append(Light.from_file(f))
+
             assert f.read(1) == b""  # EOF
         return world
 
@@ -409,3 +532,7 @@ class World:
             f.write(struct.pack("<I", len(self.voxel_objects)))
             for vox_obj in self.voxel_objects:
                 vox_obj.write(f)
+
+            f.write(struct.pack("<I", len(self.lights)))
+            for vox_light in self.lights:
+                vox_light.write(f)

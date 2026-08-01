@@ -17,7 +17,7 @@ void main() {
 in vec2 uv;
 
 uniform sampler2D u_final_texture;
-uniform float gamma = 0.8;
+uniform float gamma = 1.1;
 
 out vec4 fragColor;
 

@@ -40,7 +40,7 @@ class CameraWindow(moderngl_window.WindowConfig):  # type: ignore[misc, name-def
             fov=CAMERA_FOV,
         )
         self.camera.mouse_sensitivity = 0.05
-        self.camera.velocity = 50.0
+        self.camera.velocity = 500.0
         self.camera_enabled = True
 
     def on_key_event(self, key: Any, action: Any, modifiers: KeyModifiers) -> None:
@@ -60,7 +60,7 @@ class CameraWindow(moderngl_window.WindowConfig):  # type: ignore[misc, name-def
                 self.timer.toggle_pause()
 
         if action == keys.ACTION_RELEASE and key == keys.LEFT_SHIFT:
-            self.camera.velocity = 50.0
+            self.camera.velocity = 500.0
 
     def on_mouse_position_event(self, x: int, y: int, dx: int, dy: int) -> None:  # noqa: ARG002
         if self.camera_enabled:
@@ -231,11 +231,10 @@ class VoxoWindow(CameraWindow):
             self.post_processing.render_final_tonemapped_texture()
 
         # Render Debug Information
-        self.wireframe_box.render(self.synced_camera, [*self.scene.lights])
         if self.debug:
             self.global_occluder.render_debug(self.synced_camera)
             self.wireframe_box.render(self.synced_camera, self.scene.voxel_objects)
-            self.wireframe_box.render(self.synced_camera, [self.global_occluder.occluder_volume])
+            self.wireframe_box.render(self.synced_camera, [self.global_occluder.occluder_volume, *self.scene.lights])
         if not self.camera_enabled:
             self.debugger.render_debug(self.global_frame_counter, frametime)
         self.gbuffer.swap()

@@ -14,7 +14,7 @@ def convert_td_to_level(input_level: Path, output_level: Path | None = None) -> 
     vox_objects = list(parse_xml_level(input_level))
     vox_models = [obj for obj in vox_objects if type(obj) is VoxModel]
     vox_lights = [obj for obj in vox_objects if type(obj) is VoxLight]
-    World.from_vox_models(vox_models).write(output_level)
+    World.from_vox_objects(vox_models, vox_lights).write(output_level)
 
 
 if __name__ == "__main__":

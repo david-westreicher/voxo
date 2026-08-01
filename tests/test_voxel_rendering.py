@@ -15,7 +15,6 @@ def create_cube(dimensions: tuple[int, int, int], ctx: Context) -> VoxelObject:
         texture_information=TextureInformation(),
         model=generate_model(
             name="",
-            dimensions=dimensions,
             voxels=[
                 (x, y, z, 1) for x in range(dimensions[0]) for y in range(dimensions[1]) for z in range(dimensions[2])
             ],

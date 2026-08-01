@@ -34,17 +34,23 @@ class VoxLight:
 
 
 def parse_light(xml_light: ET.Element) -> Iterator[VoxLight]:
-    yield VoxLight(
-        light_type=xml_light.attrib["type"],
+    light = VoxLight(
+        light_type=xml_light.attrib.get("type", "sphere"),
         translation=parse_vec3(xml_light.attrib, field="pos") * 10.0 - glm.vec3(1.0, 0.0, 0.0),
         rotation=glm.quat(glm.radians(parse_vec3(xml_light.attrib, field="rot"))),
         color=parse_vec3(xml_light.attrib, field="color"),
-        size=parse_vec2(xml_light.attrib, field="size") * 10.0,
-        reach=float(xml_light.attrib.get("reach", 0.0)),
+        reach=float(xml_light.attrib.get("reach", 0.0)) * 10.0,
         unshadowed=float(xml_light.attrib.get("unshadowed", 0.0)) * 10.0,
         glare=float(xml_light.attrib.get("glare", 0.0)),
+        scale=float(xml_light.attrib.get("scale", 0.0)),
+        angle=float(xml_light.attrib.get("angle", 0.0)),
         penumbra=float(xml_light.attrib.get("penumbra", 0.0)),
     )
+    if light.light_type == "area":
+        light.size = parse_vec2(xml_light.attrib, field="size") * 10.0
+        light.scale = light.scale or 1.0
+        light.unshadowed = light.unshadowed or 5.0
+    yield light
 
 
 def parse_vox_object(

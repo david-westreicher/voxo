@@ -296,7 +296,7 @@ class Bloom:
         self.extract_bloom["exposure"] = 2.5
         self.extract_bloom.label = "prog_postprocessing_bloom_extract_bloom"
 
-        while min(size) >= 4:
+        while min(size) > 8:
             size = (size[0] // 2, size[1] // 2)
             self.blurrer.append(Blur(window, size))
 
@@ -419,7 +419,8 @@ class WireFrameRenderer:
                 if isinstance(object_to_render, Light):
                     ctx.enable_only(moderngl.CULL_FACE)
                     ctx.cull_face = "front"
-                    object_to_render.proxy_object.render(self.prog)
+                    self.prog["m_model"].write(object_to_render.proxy_transform)
+                    object_to_render.proxy_geometry.render(self.prog)
                     ctx.disable(moderngl.CULL_FACE)
                 else:
                     object_to_render.geometry.render(self.prog)

@@ -17,7 +17,6 @@ USED_MATERIAL_2 = Material(0.0, 0.0, 1.0, 0.0)
 
 def test_generate_model_palette_compression():
     # arrange
-    dimensions = (1, 1, 3)
     palette = [
         UNUSED_COLOR,
         UNUSED_COLOR,
@@ -39,7 +38,7 @@ def test_generate_model_palette_compression():
     voxels = [(0, 0, 0, 4), (0, 0, 1, 6), (0, 0, 2, 7)]
 
     # act
-    model = generate_model("", dimensions, voxels, palette, materials)
+    model = generate_model("", voxels, palette, materials)
 
     # assert
     expected_material_data = np.array(

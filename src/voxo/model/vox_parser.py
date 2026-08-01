@@ -317,6 +317,11 @@ class VoxMaterial:
         mat.media_type = attributes.get("_media_type", "")
         mat.alpha = max(float(attributes.get("_alpha", 0.0)), float(attributes.get("_trans", 0.0)))
         mat.phase = float(attributes.get("_g", 0.0))
+        if mat.material_type == MaterialType.DIFFUSE:
+            mat.emission = 0.0
+            mat.flux = 0.0
+            mat.metallic = 0.0
+            mat.specular_power = 0.0
         return mat
 
 
@@ -360,7 +365,6 @@ class VoxModel:
             assert 0.0 <= mat.emissive <= 400.0, mat.emissive
         return generate_model(
             name=self.shape_name,
-            dimensions=self.dimensions,
             voxels=self.voxels,
             palette=self.palette,
             materials=converted_materials,

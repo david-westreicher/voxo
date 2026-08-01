@@ -92,65 +92,38 @@ def chunk_iters[T](iterator: Iterable[T], size: int) -> Iterator[list[T]]:
 
 
 def cone(  # noqa: PLR0913
-    angle: float = 30.0,
-    penumbra: float = 5.0,
+    angle: float = 5.0,
     max_distance: float = 10.0,
     sectors: int = 32,
     rings: int = 16,
     name: str | None = None,
     attr_names: type[AttributeNames] = AttributeNames,
 ) -> VAO:
-    """
-    Creates a spotlight volume:
-        - cone along +Y
-        - rounded hemispherical end cap
-
-    The mesh represents the outer cone boundary.
-    Inner cone / penumbra interpolation belongs in the shader.
-
-    Args:
-        angle:
-            Inner cone full angle in degrees.
-
-        penumbra:
-            Additional outer cone angle in degrees.
-
-        max_distance:
-            Light reach.
-    """
-
     vertices_l = []
 
-    # Outer cone defines geometry coverage
-    outer_angle = math.radians((angle + penumbra) * 0.5)
-
-    # Radius where cone meets hemisphere
+    outer_angle = math.radians((angle) * 0.5)
     cone_radius = math.tan(outer_angle) * max_distance
 
     cone_rings = rings
-    cap_rings = max(4, rings // 2)
+    cap_rings = 1
 
     total_rings = cone_rings + cap_rings
 
     for r in range(total_rings):
         if r < cone_rings:
-            # -------------------------
-            # Cone section
-            # -------------------------
+            # cone
             t = r / (cone_rings - 1)
             y = max_distance * t
             radius = cone_radius * t
 
         else:
-            # -------------------------
-            # Hemisphere cap
-            # -------------------------
+            # cap
             t = (r - cone_rings + 1) / cap_rings
 
             theta = t * (math.pi * 0.5)
 
             radius = cone_radius * math.cos(theta)
-            y = max_distance + cone_radius * math.sin(theta)
+            y = max_distance
 
         for s in range(sectors):
             a = 2.0 * math.pi * s / (sectors - 1)
@@ -192,10 +165,6 @@ def hemisphere(
     vertices_l = []
     indices = []
 
-    # -------------------------
-    # Curved hemisphere surface
-    # -------------------------
-
     for r in range(rings):
         phi = (math.pi / 2) * r * inverse_radius
 
@@ -208,7 +177,6 @@ def hemisphere(
             z = math.sin(a) * ring_radius
             vertices_l.extend([x * radius, y * radius, z * radius])
 
-    # Curved surface indices
     for r in range(rings - 1):
         for s in range(sectors - 1):
             a = r * sectors + s
@@ -217,14 +185,6 @@ def hemisphere(
             d = r * sectors + s + 1
 
             indices.extend([a, b, d, d, b, c])
-
-    # -------------------------
-    # Planar base
-    # -------------------------
-    #
-    # Duplicate equator ring because normals differ:
-    # hemisphere normal = outward
-    # base normal      = downward
 
     base_start = len(vertices_l) // 3
 
@@ -236,12 +196,10 @@ def hemisphere(
 
         vertices_l.extend([x * radius, 0.0, z * radius])
 
-    # Base center vertex
     center_index = len(vertices_l) // 3
 
     vertices_l.extend([0.0, 0.0, 0.0])
 
-    # Triangle fan
     for s in range(sectors - 1):
         indices.extend([center_index, base_start + s, base_start + s + 1])
 

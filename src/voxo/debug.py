@@ -16,7 +16,7 @@ from moderngl_window.scene import Camera
 from pyglm import glm
 
 from .constants import SCREEN_DIMENSIONS
-from .objects import Object, SphereLight, Sun, VoxelObject
+from .objects import AreaLight, Light, Object, SphereLight, Sun, VoxelObject
 from .scene import Scene
 from .utils import compute_camera_ray, ray_sphere_intersection
 
@@ -329,7 +329,7 @@ class ObjectsViewer:
                     imgui.separator_text("Transform")
                     t = self.selected_object.translation
                     _, new_trans = imgui.drag_float3(
-                        "translation", t.to_list(), v_speed=1, v_min=-1000, v_max=1000, format="%.1f"
+                        "translation", t.to_list(), v_speed=1, v_min=-2000, v_max=2000, format="%.1f"
                     )
                     self.selected_object.translation = glm.vec3(new_trans)
 
@@ -343,6 +343,8 @@ class ObjectsViewer:
                     self.selected_object.scale = glm.vec3(new_scale)
 
                     if isinstance(self.selected_object, VoxelObject):
+                        if imgui.button("Reblit"):
+                            self.selected_object.is_dirty = True
                         imgui.separator_text("Dimensions")
                         dim = self.selected_object.model.opengl_dimensions
                         _, _ = imgui.drag_float3("##", list(dim), v_speed=0.0, v_min=-10, v_max=10, format="%.0f")
@@ -386,7 +388,7 @@ class ObjectsViewer:
                             imgui.text("transparency")
                         imgui.end_child()
 
-                    if isinstance(self.selected_object, SphereLight):
+                    if isinstance(self.selected_object, Light):
                         imgui.separator_text("Light")
                         _, new_col = imgui.color_edit3("color", self.selected_object.color.to_list())
                         self.selected_object.color = glm.vec3(new_col)
@@ -394,18 +396,34 @@ class ObjectsViewer:
                         _, self.selected_object.intensity = imgui.slider_float(
                             "intensity",
                             self.selected_object.intensity,
-                            v_min=1.0,
-                            v_max=20_000,
-                            format="%.0f",
+                            v_min=0.1,
+                            v_max=10.0,
+                            format="%.1f",
                         )
                         _, self.selected_object.reach = imgui.slider_float(
                             "reach",
                             self.selected_object.reach,
-                            v_min=0.05,
-                            v_max=20,
+                            v_min=1.0,
+                            v_max=200,
                             format="%.2f",
-                            flags=imgui.SliderFlags_.logarithmic,  # type:ignore[arg-type]
                         )
+                        _, self.selected_object.unshadowed = imgui.slider_float(
+                            "unshadowed",
+                            self.selected_object.unshadowed,
+                            v_min=0.0,
+                            v_max=200,
+                            format="%.2f",
+                        )
+                        if isinstance(self.selected_object, AreaLight):
+                            _, new_size = imgui.drag_float2(
+                                "size",
+                                self.selected_object.size.to_list(),
+                                v_speed=0.1,
+                                v_min=0.1,
+                                v_max=40,
+                                format="%.2f",
+                            )
+                            self.selected_object.size = glm.vec2(new_size)
 
                     if isinstance(self.selected_object, Sun):
                         imgui.separator_text("Sun")
