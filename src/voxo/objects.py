@@ -88,7 +88,7 @@ class Light(Object):
         light.translation = vox_light.translation
         light.rotation = vox_light.rotation
         light.color = vox_light.color
-        light.intensity = vox_light.scale * 0.1
+        light.intensity = 1  # vox_light.scale
         light.reach = vox_light.reach * 10.0
         light.unshadowed = vox_light.unshadowed * 20.0 or 5.0
         return light

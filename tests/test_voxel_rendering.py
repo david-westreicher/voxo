@@ -10,19 +10,20 @@ from voxo.voxel_rendering import GlobalOccluder
 
 
 def create_cube(dimensions: tuple[int, int, int], ctx: Context) -> VoxelObject:
+    model = generate_model(
+        name="",
+        voxels=[(x, y, z, 1) for x in range(dimensions[0]) for y in range(dimensions[1]) for z in range(dimensions[2])],
+        palette=[(0, 0, 0)],
+        materials=[Material()],
+    )
     vox_obj = VoxelObject(
         name="",
         texture_information=TextureInformation(),
-        model=generate_model(
-            name="",
-            voxels=[
-                (x, y, z, 1) for x in range(dimensions[0]) for y in range(dimensions[1]) for z in range(dimensions[2])
-            ],
-            palette=[(0, 0, 0)],
-            materials=[Material()],
-        ).simplify(0, 0),
+        model=model.simplify(0, 0),
     )
     vox_obj.upload_to_gpu(ctx)
+    vox_obj.texture_information, _, _ = TextureInformation.from_models([model])
+    vox_obj.texture_information.upload_to_gpu(ctx)
     return vox_obj
 
 
@@ -293,4 +294,43 @@ def test_global_occluder_clear_region_occluder_translation_has_no_influence(wind
     resulting_occluder = np.frombuffer(global_occluder.occluder_texture.read(), dtype=np.byte).reshape(6, 6, 6)
     expected_occluder = np.ones(shape=(6, 6, 6), dtype=np.byte)
     expected_occluder[0][0][0] = 0
+    np.testing.assert_array_equal(resulting_occluder, expected_occluder)
+
+
+def test_global_occluder_blit_ignore_glass(window_config: WindowConfig):
+    # arrange
+    global_occluder = GlobalOccluder(window_config, dimensions=(5, 5, 5))
+    model = generate_model(
+        name="",
+        voxels=[
+            (0, 0, 0, 1),
+            (0, 0, 1, 2),  # transparent voxel should not be blitted
+            (0, 0, 2, 1),
+        ],
+        palette=[(0, 0, 0), (0, 0, 0)],
+        materials=[
+            Material(),
+            Material(transparency=0.5),
+        ],
+    )
+    vox_obj = VoxelObject(
+        name="",
+        texture_information=TextureInformation(),
+        model=model.simplify(palette_row=0, material_row=0),
+    )
+    vox_obj.upload_to_gpu(window_config.ctx)
+    vox_obj.translation = glm.vec3(1, 0, 1)
+    vox_obj.texture_information, _, _ = TextureInformation.from_models([model])
+    vox_obj.texture_information.upload_to_gpu(window_config.ctx)
+
+    # act
+    global_occluder.blit_object(vox_obj)
+    window_config.ctx.finish()
+
+    # assert
+    resulting_occluder = np.frombuffer(global_occluder.occluder_texture.read(), dtype=np.byte).reshape(5, 5, 5)
+    expected_occluder = np.zeros(shape=(5, 5, 5), dtype=np.byte)
+    expected_occluder[0][0][0] = 1  # solid
+    expected_occluder[0][1][0] = 0  # glass should not be blitted
+    expected_occluder[0][2][0] = 1  # solid
     np.testing.assert_array_equal(resulting_occluder, expected_occluder)

@@ -133,6 +133,7 @@ class PostProcessing:
         suns: Sequence[Sun],
         irradiance: Texture,
         specular: Texture,
+        fresnel: Texture,
         current_gbuffer: GBuffer,
         last_gbuffer: GBuffer,
         frame_counter: int,
@@ -184,6 +185,7 @@ class PostProcessing:
         self.specular_taa.clean_texture.use(location=2)
         current_gbuffer.depth_texture.use(location=3)
         current_gbuffer.material_texture.use(location=4)
+        fresnel.use(location=5)
         self.quad.render(self.postprocessing_program)
 
         self.bloom.render(self.final_texture)

@@ -84,8 +84,10 @@ class GlobalOccluder:
         self.blitter["min_cell"] = min_aabb
         self.blitter["max_cell"] = max_aabb
         self.blitter["occluder_translation"].write(glm.ivec3(self.occluder_volume.translation))
+        self.blitter["material_row"] = voxel_object.model.material_row
         voxel_object.voxel_texture.use(location=0)
         self.occluder_texture.bind_to_image(1, read=False, write=True, level=0)
+        voxel_object.texture_information.material_texture.use(location=2)
         self.blitter.run(
             (size[0] + 7) // 8,
             (size[1] + 7) // 8,
@@ -208,15 +210,18 @@ class VoxelLighting:
         self.irradiance_texture.label = "tex_irradiance_texture"
         self.specular_texture = window.ctx.texture(size=size, components=3, dtype="f2")
         self.specular_texture.label = "tex_specular_texture"
+        self.fresnel_texture = window.ctx.texture(size=size, components=1, dtype="f2")
+        self.fresnel_texture.label = "tex_fresnel_texture"
 
         self.ambient_lighting = VoxelAmbientLighting(window, self.irradiance_texture)
         self.direct_lighting = VoxelDirectLighting(window, self.irradiance_texture)
-        self.specular_lighting = VoxelSpecularLighting(window, self.specular_texture)
+        self.specular_lighting = VoxelSpecularLighting(window, self.specular_texture, self.fresnel_texture)
 
         self.lighting_clearer = window.ctx.framebuffer(
             color_attachments=[
                 self.specular_texture,
                 self.irradiance_texture,
+                self.fresnel_texture,
             ]
         )
         self.lighting_clearer.label = "framebuffer_voxel_lighting_clearer"
@@ -251,7 +256,7 @@ class VoxelLighting:
 
     @cached_property
     def textures(self) -> list[Texture]:
-        return [self.irradiance_texture, self.specular_texture]
+        return [self.irradiance_texture, self.specular_texture, self.fresnel_texture]
 
     @cached_property
     def shaders(self) -> list[Program]:
@@ -455,14 +460,15 @@ class VoxelDirectLighting:
 
 
 class VoxelSpecularLighting:
-    def __init__(self, window: WindowConfig, specular_texture: Texture) -> None:
-        self.framebuffer = window.ctx.framebuffer(color_attachments=[specular_texture])
+    def __init__(self, window: WindowConfig, specular_texture: Texture, fresnel_texture: Texture) -> None:
+        self.framebuffer = window.ctx.framebuffer(color_attachments=[specular_texture, fresnel_texture])
         self.framebuffer.label = "framebuffer_voxel_specular_lighting"
 
         self.voxel_specular_lighting = window.load_program(
             "programs/voxel_specular_lighting.glsl", defines=GLOBAL_DEFINE
         )
         self.voxel_specular_lighting.label = "prog_voxel_specular_lighting"
+        self.voxel_specular_lighting["u_fresnel_factor"] = 0.3
 
         self.stbnormals = window.load_texture_array("assets/stbn_unitvec3.png", layers=64)
         self.stbnormals.label = "texarr_stbn_unitvec3"

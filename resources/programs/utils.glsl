@@ -120,88 +120,12 @@ Hit sparse_raymarch(Ray ray, float max_distance, usampler3D occluder, Box bbox, 
     return hit;
 }
 
-uint voxelmap(vec3 p, Box bbox, usampler3D u_voxel_data)
-{
-    vec3 local_coord = (p + 0.5) / (bbox.max - bbox.min);
-    return textureLod(u_voxel_data, local_coord, 0.0).r;
-}
-
-Hit dda(Ray ray, int max_steps, usampler3D voxels, Box bbox) {
-    vec3 pos = ray.origin;
-    vec3 rayDir = ray.direction;
-    Hit hit;
-    hit.hit = false;
-
-    vec3 map = floor(pos);
-    vec3 stepDir = vec3(0);
-    vec3 sideDist = vec3(9e9);
-    vec3 deltaDist = 1. / abs(rayDir);
-    float side = 0.;
-    vec3 S = step(0., rayDir);
-
-    stepDir = 2. * S - 1.;
-    sideDist = (S - stepDir * fract(pos)) * deltaDist;
-
-    bool has_entered = is_inside_box(map, bbox);
-    int i;
-    for (i = 0; i < max_steps; i++) {
-        vec4 conds = step(sideDist.xxyy, sideDist.yzzx);
-        vec3 cases = vec3(0);
-        cases.x = conds.x * conds.y;
-        cases.y = (1. - cases.x) * conds.z * conds.w;
-        cases.z = (1. - cases.x) * (1. - cases.y);
-        sideDist += max((2. * cases - 1.) * deltaDist, 0.);
-        map += cases * stepDir;
-        if (is_inside_box(map, bbox) && !has_entered) {
-            has_entered = true;
-        }
-        if (has_entered && !is_inside_box(map, bbox)) {
-            return hit;
-        }
-        if (has_entered && voxelmap(map, bbox, voxels) > 0.) // Did we hit anything? if so, we are done!
-        {
-            side = cases.y + 2. * cases.z;
-            break;
-        }
-    }
-    if (!has_entered || i == max_steps) {
-        return hit;
-    }
-    vec3 normal = vec3(0.0);
-    normal[int(side)] = -1. * sign(rayDir[int(side)]); // voxel face debug
-    vec3 p = map + .5 - stepDir * .5; // Point on axis plane
-    float t = (dot(normal, p - pos)) / dot(normal, rayDir);
-
-    hit.hit = true;
-    hit.t = t;
-    hit.position = pos + rayDir * t;
-    hit.voxel = map;
-    hit.normal = normal;
-    return hit;
-}
-
 vec2 world_to_uv(vec3 world_pos, mat4x4 projectionview) {
     vec4 clip = projectionview * vec4(world_pos, 1.0);
     if (clip.w <= 0.0)
         return vec2(-1.0); // behind the camera
     vec3 ndc = clip.xyz / clip.w;
     return ndc.xy * 0.5 + 0.5;
-}
-
-Hit screen_space_dda(Ray ray, int max_steps, usampler3D voxels, mat4x4 projview, sampler2D linear_depth, vec3 camera_pos, Box bbox) {
-    vec3 world_pos = ray.origin + ray.direction;
-    vec2 uv = world_to_uv(world_pos, projview);
-    float screen_depth = texture(linear_depth, uv).r;
-    float sample_depth = distance(world_pos, camera_pos);
-    if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThan(uv, vec2(1.0)))
-            && screen_depth < sample_depth && sample_depth - screen_depth < 1.5) {
-        Hit hit;
-        hit.hit = true;
-        hit.t = distance(ray.origin, world_pos);
-        return hit;
-    }
-    ray.origin = world_pos;
-    return dda(ray, max_steps, voxels, bbox);
 }
 
 bool intersectAABB(
