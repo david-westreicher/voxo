@@ -1,6 +1,7 @@
 import struct
 from collections.abc import Sequence
 from functools import cached_property
+from itertools import groupby
 from typing import cast
 
 import moderngl
@@ -10,11 +11,19 @@ from moderngl_window.context.base import WindowConfig
 from moderngl_window.scene import Camera
 from pyglm import glm
 
-from voxo.utils import chunk_iters
-
-from .constants import GLOBAL_DEFINE, MAX_VOXEL_OBJECTS, USE_VOXEL_OBJECT_INSTANCING, VOXEL_OBJECT_COUNT_PER_BATCH
-from .objects import Light, Object, Sun, VoxelObject
+from .constants import (
+    GLOBAL_DEFINE,
+    LIGHT_TYPE_NUM_AREA,
+    LIGHT_TYPE_NUM_CONE,
+    LIGHT_TYPE_NUM_SPHERE,
+    LIGHT_TYPE_NUM_SUN,
+    MAX_VOXEL_OBJECTS,
+    USE_VOXEL_OBJECT_INSTANCING,
+    VOXEL_OBJECT_COUNT_PER_BATCH,
+)
+from .objects import AreaLight, ConeLight, Light, Object, SphereLight, Sun, VoxelObject
 from .rendering import GBuffer
+from .utils import chunk_iters
 
 
 class GlobalOccluder:
@@ -234,11 +243,7 @@ class VoxelLighting:
             if not sun.visible:
                 continue
             self.direct_lighting.render_sun(camera, gbuffer, occluder, sun, frame_counter)
-        # TODO(david): enable front face culling
-        for light in lights:
-            if not light.visible:
-                continue
-            self.direct_lighting.render_light(camera, gbuffer, occluder, light, frame_counter)
+        self.direct_lighting.render_lights(camera, gbuffer, occluder, lights, frame_counter)
         ctx.disable(moderngl.BLEND)
 
         sun_direction = suns[0].direction if suns and suns[0].visible else glm.vec3(0, -1, 0)
@@ -298,51 +303,128 @@ class VoxelDirectLighting:
         self.framebuffer = window.ctx.framebuffer(color_attachments=[irradiance_texture])
         self.framebuffer.label = "framebuffer_voxel_direct_lighting"
 
-        self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
-        self.voxel_direct_light = window.load_program(
-            "programs/voxel_direct_lighting.glsl",
-            defines=GLOBAL_DEFINE | {"IS_SUN": 0},
-        )
-        self.voxel_direct_light.label = "prog_voxel_direct_light"
         self.voxel_direct_sun = window.load_program(
             "programs/voxel_direct_lighting.glsl",
-            defines=GLOBAL_DEFINE | {"IS_SUN": 1},
+            defines=GLOBAL_DEFINE | {"LIGHT_TYPE": f"{LIGHT_TYPE_NUM_SUN}"},
         )
         self.voxel_direct_sun.label = "prog_voxel_direct_sun"
+
+        self.voxel_direct_sphere = window.load_program(
+            "programs/voxel_direct_lighting.glsl",
+            defines=GLOBAL_DEFINE | {"LIGHT_TYPE": f"{LIGHT_TYPE_NUM_SPHERE}"},
+        )
+        self.voxel_direct_sphere.label = "prog_voxel_direct_sphere"
+
+        self.voxel_direct_cone = window.load_program(
+            "programs/voxel_direct_lighting.glsl",
+            defines=GLOBAL_DEFINE | {"LIGHT_TYPE": f"{LIGHT_TYPE_NUM_CONE}"},
+        )
+        self.voxel_direct_cone.label = "prog_voxel_direct_cone"
+
+        self.voxel_direct_area = window.load_program(
+            "programs/voxel_direct_lighting.glsl",
+            defines=GLOBAL_DEFINE | {"LIGHT_TYPE": f"{LIGHT_TYPE_NUM_AREA}"},
+        )
+        self.voxel_direct_area.label = "prog_voxel_direct_area"
 
         self.random_vec2 = window.load_texture_array("assets/stbn_vec2.png", layers=64)
         self.random_vec2.label = "texarr_stbn_vec2"
         self.random_vec2.filter = (moderngl.NEAREST, moderngl.NEAREST)
 
-    def _setup_uniforms(self, prog: Program, camera: Camera, frame_counter: int) -> None:
+        self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
+
+    def _setup_uniforms(
+        self,
+        prog: Program,
+        camera: Camera,
+        occluder: GlobalOccluder,
+        frame_counter: int | None = None,
+    ) -> None:
         # TODO(david): This could be a context managers job, setup only once per frame, not per object
-        prog["frame_counter"].value = frame_counter
+        if frame_counter is not None:
+            prog["frame_counter"].value = frame_counter
         prog["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         prog["uInvView"].write(glm.inverse(camera.matrix))
+        prog["occluder_translation"].write(glm.ivec3(occluder.occluder_volume.translation))
+        if "m_proj" in prog:
+            prog["m_proj"].write(camera.projection.matrix)
+        if "m_camera" in prog:
+            prog["m_camera"].write(camera.matrix)
 
-    def render_light(
+    def render_lights(
         self,
         camera: Camera,
         gbuffer: GBuffer,
         occluder: GlobalOccluder,
-        light: Light,
+        lights: Sequence[Light],
         frame_counter: int,
     ) -> None:
-        self.framebuffer.use()
-        self._setup_uniforms(self.voxel_direct_light, camera, frame_counter)
+        visible_lights = [light for light in lights if light.visible]
+        visible_lights.sort(key=lambda x: str(type(x)))
+        light_by_type_mapping = {k: list(v) for k, v in groupby(visible_lights, type)}
+        sphere_lights: list[SphereLight] = cast("list[SphereLight]", light_by_type_mapping.get(SphereLight, []))
+        cone_lights: list[ConeLight] = cast("list[ConeLight]", light_by_type_mapping.get(ConeLight, []))
+        area_lights: list[AreaLight] = cast("list[AreaLight]", light_by_type_mapping.get(AreaLight, []))
 
-        self.voxel_direct_light["occluder_translation"].write(glm.ivec3(occluder.occluder_volume.translation))
-        self.voxel_direct_light["lightPos"].write(light.translation)
-        self.voxel_direct_light["lightRadius"] = light.radius
-        self.voxel_direct_light["lightColor"].write(light.color * light.intensity)
+        self.framebuffer.use()
         gbuffer.smooth_normal_texture.use(location=0)
         gbuffer.depth_texture.use(location=1)
         gbuffer.linear_depth.use(location=2)
         occluder.occluder_texture.use(location=3)
         self.random_vec2.use(location=4)
 
-        # TODO(david): use light geometry for rendering, also need to change attenuation in shader
-        self.quad_fs.render(self.voxel_direct_light)
+        ctx = self.random_vec2.ctx
+        prev_cull_face = ctx.cull_face
+        ctx.enable(moderngl.CULL_FACE)
+        ctx.cull_face = "front"
+        if sphere_lights:
+            self.render_sphere_lights(camera, occluder, sphere_lights, frame_counter)
+        if cone_lights:
+            self.render_cone_lights(camera, occluder, cone_lights)
+        if area_lights:
+            self.render_area_lights(camera, occluder, area_lights, frame_counter)
+        ctx.disable(moderngl.CULL_FACE)
+        ctx.cull_face = prev_cull_face
+
+    def render_sphere_lights(
+        self, camera: Camera, occluder: GlobalOccluder, lights: Sequence[SphereLight], frame_counter: int
+    ) -> None:
+        self._setup_uniforms(self.voxel_direct_sphere, camera, occluder, frame_counter)
+
+        for light in lights:
+            self.voxel_direct_sphere["unshadowed"] = light.unshadowed
+            self.voxel_direct_sphere["lightPos"].write(light.translation)
+            self.voxel_direct_sphere["lightColor"].write(light.color * light.intensity)
+            self.voxel_direct_sphere["lightRadius"] = light.light_size
+            self.voxel_direct_sphere["reach"] = light.reach
+            self.voxel_direct_sphere["m_model"].write(light.proxy_transform)
+            light.proxy_geometry.render(self.voxel_direct_sphere)
+
+    def render_cone_lights(self, camera: Camera, occluder: GlobalOccluder, lights: Sequence[ConeLight]) -> None:
+        self._setup_uniforms(self.voxel_direct_cone, camera, occluder, frame_counter=None)
+
+        for light in lights:
+            self.voxel_direct_cone["unshadowed"] = light.unshadowed
+            self.voxel_direct_cone["lightColor"].write(light.color * light.intensity)
+            self.voxel_direct_cone["lightPos"].write(light.translation)
+            self.voxel_direct_cone["lightDirection"].write(light.direction)
+            self.voxel_direct_cone["penumbraCos"] = glm.cos(glm.radians(light.penumbra))
+            self.voxel_direct_cone["reach"] = light.reach
+            self.voxel_direct_cone["m_model"].write(light.proxy_transform)
+            light.proxy_geometry.render(self.voxel_direct_cone)
+
+    def render_area_lights(
+        self, camera: Camera, occluder: GlobalOccluder, lights: Sequence[AreaLight], frame_counter: int
+    ) -> None:
+        self._setup_uniforms(self.voxel_direct_area, camera, occluder, frame_counter)
+
+        for light in lights:
+            self.voxel_direct_area["unshadowed"] = light.unshadowed
+            self.voxel_direct_area["lightColor"].write(light.color * light.intensity)
+            self.voxel_direct_area["light_matrix"].write(light.area_light_matrix)
+            self.voxel_direct_area["reach"] = light.reach
+            self.voxel_direct_area["m_model"].write(light.proxy_transform)
+            light.proxy_geometry.render(self.voxel_direct_area)
 
     def render_sun(
         self,
@@ -353,7 +435,7 @@ class VoxelDirectLighting:
         frame_counter: int,
     ) -> None:
         self.framebuffer.use()
-        self._setup_uniforms(self.voxel_direct_sun, camera, frame_counter)
+        self._setup_uniforms(self.voxel_direct_sun, camera, occluder, frame_counter)
 
         self.voxel_direct_sun["occluder_translation"].write(glm.ivec3(occluder.occluder_volume.translation))
         self.voxel_direct_sun["sunDirection"].write(sun.direction)
@@ -369,7 +451,7 @@ class VoxelDirectLighting:
 
     @cached_property
     def shaders(self) -> list[Program]:
-        return [self.voxel_direct_light, self.voxel_direct_sun]
+        return [self.voxel_direct_sphere, self.voxel_direct_sun]
 
 
 class VoxelSpecularLighting:

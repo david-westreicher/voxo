@@ -18,7 +18,9 @@ class Scene:
         self.ctx = ctx
 
         self.sun = Sun()
-        self.world = World.from_file(Path("./resources/levels/carib_sandbox.lvl"))
+        self.world = World.from_file(Path("./resources/levels/marina_sandbox.lvl"))
+        for light in self.world.lights:
+            self.add_light(light)
         self.world.texture_information.upload_to_gpu(ctx)
         self.object_generator = chunk_iters(self.world.voxel_objects, 4000)
 
@@ -29,6 +31,7 @@ class Scene:
 
     def add_light(self, light: Light) -> Light:
         self.lights.append(light)
+        light.upload_to_gpu()
         return light
 
     @cached_property

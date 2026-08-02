@@ -1,8 +1,13 @@
+import math
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from itertools import islice
 from typing import TypeVar, cast
 
+import moderngl as mlg
+import numpy as np
+from moderngl_window.geometry import AttributeNames
+from moderngl_window.opengl.vao import VAO
 from pyglm import glm
 
 T = TypeVar("T")
@@ -84,3 +89,121 @@ def chunk_iters[T](iterator: Iterable[T], size: int) -> Iterator[list[T]]:
         if not chunk:
             break
         yield chunk
+
+
+def cone(  # noqa: PLR0913
+    angle: float = 5.0,
+    max_distance: float = 10.0,
+    sectors: int = 32,
+    rings: int = 16,
+    name: str | None = None,
+    attr_names: type[AttributeNames] = AttributeNames,
+) -> VAO:
+    vertices_l = []
+
+    outer_angle = math.radians((angle) * 0.5)
+    cone_radius = math.tan(outer_angle) * max_distance
+
+    cone_rings = rings
+    cap_rings = 1
+
+    total_rings = cone_rings + cap_rings
+
+    for r in range(total_rings):
+        if r < cone_rings:
+            # cone
+            t = r / (cone_rings - 1)
+            y = max_distance * t
+            radius = cone_radius * t
+
+        else:
+            # cap
+            t = (r - cone_rings + 1) / cap_rings
+
+            theta = t * (math.pi * 0.5)
+
+            radius = cone_radius * math.cos(theta)
+            y = max_distance
+
+        for s in range(sectors):
+            a = 2.0 * math.pi * s / (sectors - 1)
+
+            x = math.cos(a) * radius
+            z = math.sin(a) * radius
+
+            vertices_l.extend([x, y, z])
+
+    indices = []
+
+    for r in range(total_rings - 1):
+        for s in range(sectors - 1):
+            a = r * sectors + s
+            b = (r + 1) * sectors + s
+            c = (r + 1) * sectors + s + 1
+            d = r * sectors + s + 1
+
+            indices.extend([a, b, d, d, b, c])
+
+    vao = VAO(name or "cone", mode=mlg.TRIANGLES)
+    vao.buffer(np.array(vertices_l, dtype=np.float32), "3f", [attr_names.POSITION])
+    vao.index_buffer(np.array(indices, dtype=np.uint32), index_element_size=4)
+    return vao
+
+
+def hemisphere(
+    radius: float = 0.5,
+    sectors: int = 32,
+    rings: int = 16,
+    name: str | None = None,
+    attr_names: type[AttributeNames] = AttributeNames,
+) -> VAO:
+    """Creates an upper hemisphere with a planar base."""
+
+    inverse_radius = 1.0 / (rings - 1)
+    inverse_sectors = 1.0 / (sectors - 1)
+
+    vertices_l = []
+    indices = []
+
+    for r in range(rings):
+        phi = (math.pi / 2) * r * inverse_radius
+
+        y = math.sin(phi)
+        ring_radius = math.cos(phi)
+
+        for s in range(sectors):
+            a = 2.0 * math.pi * s * inverse_sectors
+            x = math.cos(a) * ring_radius
+            z = math.sin(a) * ring_radius
+            vertices_l.extend([x * radius, y * radius, z * radius])
+
+    for r in range(rings - 1):
+        for s in range(sectors - 1):
+            a = r * sectors + s
+            b = (r + 1) * sectors + s
+            c = (r + 1) * sectors + s + 1
+            d = r * sectors + s + 1
+
+            indices.extend([a, b, d, d, b, c])
+
+    base_start = len(vertices_l) // 3
+
+    for s in range(sectors):
+        a = 2.0 * math.pi * s * inverse_sectors
+
+        x = math.cos(a)
+        z = math.sin(a)
+
+        vertices_l.extend([x * radius, 0.0, z * radius])
+
+    center_index = len(vertices_l) // 3
+
+    vertices_l.extend([0.0, 0.0, 0.0])
+
+    for s in range(sectors - 1):
+        indices.extend([center_index, base_start + s, base_start + s + 1])
+
+    vao = VAO(name or "hemisphere", mode=mlg.TRIANGLES)
+    vao.buffer(np.array(vertices_l, dtype=np.float32), "3f", [attr_names.POSITION])
+    vao.index_buffer(np.array(indices, dtype=np.uint32), index_element_size=4)
+    return vao

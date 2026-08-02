@@ -50,7 +50,6 @@ def parse_text_model(model_path: Path) -> Model:
     text_model = TextModel(path=model_path, voxels=voxels)
     return generate_model(
         name=model_path.with_suffix("").name,
-        dimensions=text_model.dimensions,
         voxels=text_model.voxels,
         palette=palette,
         materials=materials,

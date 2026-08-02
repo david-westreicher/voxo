@@ -231,11 +231,10 @@ class VoxoWindow(CameraWindow):
             self.post_processing.render_final_tonemapped_texture()
 
         # Render Debug Information
-        self.wireframe_box.render(self.synced_camera, [*self.scene.lights])
         if self.debug:
             self.global_occluder.render_debug(self.synced_camera)
             self.wireframe_box.render(self.synced_camera, self.scene.voxel_objects)
-            self.wireframe_box.render(self.synced_camera, [self.global_occluder.occluder_volume])
+            self.wireframe_box.render(self.synced_camera, [self.global_occluder.occluder_volume, *self.scene.lights])
         if not self.camera_enabled:
             self.debugger.render_debug(self.global_frame_counter, frametime)
         self.gbuffer.swap()

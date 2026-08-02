@@ -1,8 +1,10 @@
+import math
 import struct
 from dataclasses import dataclass, field
 from typing import BinaryIO
 
 import numpy as np
+from pyglm import glm
 
 VoxelInfo = tuple[int, int, int, int]  # x, y, z, color index
 
@@ -97,9 +99,17 @@ class Material:
         )
 
 
+def bounding_box(voxels: list[VoxelInfo]) -> tuple[glm.ivec3, glm.ivec3]:
+    min_box = glm.ivec3(math.inf)
+    max_box = glm.ivec3(-math.inf)
+    for x, y, z, _ in voxels:
+        min_box = glm.min(min_box, glm.ivec3(x, y, z))  # type:ignore[assignment]
+        max_box = glm.max(max_box, glm.ivec3(x, y, z))  # type:ignore[assignment]
+    return min_box, max_box
+
+
 def generate_model(
     name: str,
-    dimensions: tuple[int, int, int],
     voxels: list[VoxelInfo],
     palette: list[tuple[int, int, int]],
     materials: list[Material],
@@ -114,7 +124,9 @@ def generate_model(
 
     voxel_data = []
     voxel_map = {(x, y, z): col for x, y, z, col in voxels}
-    w, h, d = dimensions
+    min_box, max_box = bounding_box(voxels)
+    assert min_box == glm.ivec3(0, 0, 0)
+    w, h, d = (max_box + 1).to_tuple()
     for y in reversed(range(h)):
         for z in range(d):
             for x in range(w):

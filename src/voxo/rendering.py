@@ -9,7 +9,7 @@ from moderngl_window.scene import Camera
 from pyglm import glm
 
 from .constants import GLOBAL_DEFINE, GLOBAL_OCCLUDER_DIMENSIONS
-from .objects import Object, Sun, VoxelObject
+from .objects import Light, Object, Sun, VoxelObject
 
 
 class GBuffer:
@@ -110,6 +110,8 @@ class PostProcessing:
     def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int]) -> None:  # type: ignore[name-defined]
         self.final_texture = window.ctx.texture(size=size, components=3, dtype="f2")
         self.final_texture.label = "tex2d_postprocessing_final"
+        self.final_texture.repeat_x = False
+        self.final_texture.repeat_y = False
         self.framebuffer = window.ctx.framebuffer(color_attachments=[self.final_texture])
         self.framebuffer.label = "framebuffer_postprocessing"
 
@@ -296,7 +298,7 @@ class Bloom:
         self.extract_bloom["exposure"] = 2.5
         self.extract_bloom.label = "prog_postprocessing_bloom_extract_bloom"
 
-        while min(size) >= 4:
+        while min(size) > 8:
             size = (size[0] // 2, size[1] // 2)
             self.blurrer.append(Blur(window, size))
 
@@ -398,7 +400,7 @@ class WireFrameRenderer:
         self.prog["color"].value = 1.0, 1.0, 0.0
         self.cube = geometry.cube(size=(1, 1, 1), center=(0.5, 0.5, 0.5))
 
-    def render(self, camera: Camera, objects: Sequence[Object]) -> None:
+    def render(self, camera: Camera, objects: Sequence[Object | Light]) -> None:
         ctx = self.prog.ctx
         ctx.enable_only(moderngl.CULL_FACE)
         ctx.wireframe = True
@@ -416,7 +418,14 @@ class WireFrameRenderer:
                 self.cube.render(self.prog)
             else:
                 self.prog["scale"].write(glm.vec3(1.0))
-                object_to_render.geometry.render(self.prog)
+                if isinstance(object_to_render, Light):
+                    ctx.enable_only(moderngl.CULL_FACE)
+                    ctx.cull_face = "front"
+                    self.prog["m_model"].write(object_to_render.proxy_transform)
+                    object_to_render.proxy_geometry.render(self.prog)
+                    ctx.disable(moderngl.CULL_FACE)
+                else:
+                    object_to_render.geometry.render(self.prog)
         ctx.wireframe = False
 
 
