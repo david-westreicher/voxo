@@ -395,8 +395,10 @@ class VoxelDirectLighting:
             self.voxel_direct_sphere["unshadowed"] = light.unshadowed
             self.voxel_direct_sphere["lightPos"].write(light.translation)
             self.voxel_direct_sphere["lightColor"].write(light.color * light.intensity)
-            self.voxel_direct_sphere["lightRadius"] = light.reach
-            self.quad_fs.render(self.voxel_direct_sphere)
+            self.voxel_direct_sphere["lightRadius"] = light.light_size
+            self.voxel_direct_sphere["reach"] = light.reach
+            self.voxel_direct_sphere["m_model"].write(light.proxy_transform)
+            light.proxy_geometry.render(self.voxel_direct_sphere)
 
     def render_cone_lights(self, camera: Camera, occluder: GlobalOccluder, lights: Sequence[ConeLight]) -> None:
         self._setup_uniforms(self.voxel_direct_cone, camera, occluder, frame_counter=None)

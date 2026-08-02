@@ -20,36 +20,39 @@ def parse_vec3(pos_attribute: dict[str, str], field: str) -> glm.vec3:
 
 @dataclass
 class VoxLight:
-    light_type: str = ""  # TODO(david): use enum
-    translation: glm.vec3 = field(default_factory=lambda: glm.vec3(0))
-    rotation: glm.quat = field(default_factory=glm.quat)
-    color: glm.vec3 = field(default_factory=lambda: glm.vec3(0))
-    size: glm.vec2 = field(default_factory=lambda: glm.vec2(0))
+    name: str
+    light_type: str
     reach: float = 0.0
     unshadowed: float = 0.0
     glare: float = 0.0
     scale: float = 0.0
     angle: float = 0.0
     penumbra: float = 0.0
+    light_size: float = 0.1
+    translation: glm.vec3 = field(default_factory=lambda: glm.vec3(0))
+    rotation: glm.quat = field(default_factory=glm.quat)
+    color: glm.vec3 = field(default_factory=lambda: glm.vec3(0))
+    size: glm.vec2 = field(default_factory=lambda: glm.vec2(0))
 
 
-def parse_light(xml_light: ET.Element) -> Iterator[VoxLight]:
+def parse_light(xml_light: ET.Element, parent_shape_name: str) -> Iterator[VoxLight]:
     light = VoxLight(
+        name=parent_shape_name,
         light_type=xml_light.attrib.get("type", "sphere"),
         translation=parse_vec3(xml_light.attrib, field="pos") * 10.0 - glm.vec3(1.0, 0.0, 0.0),
         rotation=glm.quat(glm.radians(parse_vec3(xml_light.attrib, field="rot"))),
         color=parse_vec3(xml_light.attrib, field="color"),
-        reach=float(xml_light.attrib.get("reach", 0.0)) * 10.0,
-        unshadowed=float(xml_light.attrib.get("unshadowed", 0.0)) * 20.0,
+        reach=float(xml_light.attrib.get("reach", 0.0)),
+        unshadowed=float(xml_light.attrib.get("unshadowed", 0.0)),
         glare=float(xml_light.attrib.get("glare", 0.0)),
-        scale=float(xml_light.attrib.get("scale", 0.0)),
-        angle=float(xml_light.attrib.get("angle", 0.0)),
-        penumbra=float(xml_light.attrib.get("penumbra", 0.0)),
+        scale=float(xml_light.attrib.get("scale", 1.0)),
+        angle=float(xml_light.attrib.get("angle", 90.0)),
+        penumbra=float(xml_light.attrib.get("penumbra", 10.0)),
     )
-    if light.light_type == "area":
-        light.size = parse_vec2(xml_light.attrib, field="size") * 10.0
-        light.scale = light.scale or 1.0
-        light.unshadowed = light.unshadowed or 5.0
+    if light.light_type in ["area", "capsule"]:
+        light.size = parse_vec2(xml_light.attrib, field="size")
+    else:
+        light.light_size = float(xml_light.attrib.get("size", 0.1))
     yield light
 
 
@@ -76,7 +79,7 @@ def parse_vox_object(
             vox_obj.translation = pos + rot * vox_obj.translation
             yield vox_obj
     for xml_light in xml_vox.findall("light"):
-        for light in parse_light(xml_light):
+        for light in parse_light(xml_light, parent_shape_name=shape):
             light.rotation = rot * light.rotation
             light.translation = pos + rot * light.translation
             yield light

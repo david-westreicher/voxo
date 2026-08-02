@@ -424,6 +424,15 @@ class ObjectsViewer:
                                 format="%.2f",
                             )
                             self.selected_object.size = glm.vec2(new_size)
+                        if isinstance(self.selected_object, SphereLight):
+                            _, self.selected_object.light_size = imgui.drag_float(
+                                "size",
+                                self.selected_object.light_size,
+                                v_speed=0.1,
+                                v_min=0.0,
+                                v_max=40,
+                                format="%.2f",
+                            )
 
                     if isinstance(self.selected_object, Sun):
                         imgui.separator_text("Sun")

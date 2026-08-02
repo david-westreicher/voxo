@@ -142,7 +142,10 @@ vec3 compute_direct_light(vec3 pos, vec3 normal, vec3 light_pos) {
     Ray sun_ray = Ray(ray_start, normalize(light_sample_pos - ray_start));
     sun_ray.origin -= occluder_translation;
     float sample_distance = distance(pos, light_sample_pos);
-    Hit sun_hit = sparse_raymarch(sun_ray, sample_distance * 1.2, u_voxel_data, bbox, 16);
+    if (sample_distance >= reach) {
+        return vec3(0.0);
+    }
+    Hit sun_hit = sparse_raymarch(sun_ray, sample_distance, u_voxel_data, bbox, 16);
     if (!sun_hit.hit || sun_hit.t >= sample_distance - unshadowed) {
         // Lambert cosine term
         float NdotL = max(dot(normal, L), 0.0);

@@ -76,20 +76,21 @@ class Light(Object):
     def from_vox_light(vox_light: VoxLight) -> "Light":
         light: Light | None = None
         if vox_light.light_type == "sphere":
-            light = SphereLight()
+            light = SphereLight(vox_light.light_size)
         elif vox_light.light_type == "cone":
             light = ConeLight(vox_light.penumbra)
         elif vox_light.light_type == "area":
-            light = AreaLight(vox_light.size)
+            light = AreaLight(vox_light.size * 10.0)
         else:
             raise NotImplementedError(vox_light)
         assert light
+        light.name += f"_{vox_light.name}"
         light.translation = vox_light.translation
         light.rotation = vox_light.rotation
         light.color = vox_light.color
         light.intensity = vox_light.scale * 0.1
-        light.reach = vox_light.reach
-        light.unshadowed = vox_light.unshadowed
+        light.reach = vox_light.reach * 10.0
+        light.unshadowed = vox_light.unshadowed * 20.0 or 5.0
         return light
 
     def write(self, f: BinaryIO) -> None:
@@ -127,10 +128,13 @@ class Light(Object):
 
 @dataclass(init=False, kw_only=True)
 class SphereLight(Light):
-    def __init__(self) -> None:
+    light_size: float
+
+    def __init__(self, light_size: float = 0.1) -> None:
         global OBJECT_ID_COUNTER  # noqa: PLW0603
         super().__init__(name=f"sphere_light_{OBJECT_ID_COUNTER}")
         OBJECT_ID_COUNTER += 1
+        self.light_size = light_size
 
     def upload_to_gpu(self) -> None:
         self.geometry = geometry.sphere(1.0)
@@ -143,10 +147,12 @@ class SphereLight(Light):
     def write(self, f: BinaryIO) -> None:
         f.write(struct.pack("<I", LIGHT_TYPE_NUM_SPHERE))
         super().write(f)
+        f.write(struct.pack("<f", self.light_size))
 
     @staticmethod
-    def from_file(_: BinaryIO) -> "Light":
-        return SphereLight()
+    def from_file(f: BinaryIO) -> "Light":
+        light_size, *_ = struct.unpack("<f", f.read(4))
+        return SphereLight(light_size)
 
 
 @dataclass(init=False, kw_only=True)

@@ -18,7 +18,7 @@ def test_world_write_load(tmp_path: Path):
         palette=[(i, 0, 0) for i in range(256)],
         materials=[VoxMaterial(MaterialType.METAL)] * 256,
     )
-    vox_light = VoxLight(light_type="area", size=glm.vec2(1, 2))
+    vox_light = VoxLight(name="test", light_type="sphere", size=glm.vec2(1, 2), light_size=0.5)
     world = World.from_vox_objects(vox_models=[vox_model], vox_lights=[vox_light])
     test_file = tmp_path / "test.level"
 
