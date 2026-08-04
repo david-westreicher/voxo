@@ -210,18 +210,18 @@ class VoxelLighting:
         self.irradiance_texture.label = "tex_irradiance_texture"
         self.specular_texture = window.ctx.texture(size=size, components=3, dtype="f2")
         self.specular_texture.label = "tex_specular_texture"
-        self.fresnel_texture = window.ctx.texture(size=size, components=1, dtype="f2")
-        self.fresnel_texture.label = "tex_fresnel_texture"
+        self.reflectivity_texture = window.ctx.texture(size=size, components=1, dtype="f2")
+        self.reflectivity_texture.label = "tex_reflectivity_texture"
 
         self.ambient_lighting = VoxelAmbientLighting(window, self.irradiance_texture)
         self.direct_lighting = VoxelDirectLighting(window, self.irradiance_texture)
-        self.specular_lighting = VoxelSpecularLighting(window, self.specular_texture, self.fresnel_texture)
+        self.specular_lighting = VoxelSpecularLighting(window, self.specular_texture, self.reflectivity_texture)
 
         self.lighting_clearer = window.ctx.framebuffer(
             color_attachments=[
                 self.specular_texture,
                 self.irradiance_texture,
-                self.fresnel_texture,
+                self.reflectivity_texture,
             ]
         )
         self.lighting_clearer.label = "framebuffer_voxel_lighting_clearer"
@@ -256,7 +256,7 @@ class VoxelLighting:
 
     @cached_property
     def textures(self) -> list[Texture]:
-        return [self.irradiance_texture, self.specular_texture, self.fresnel_texture]
+        return [self.irradiance_texture, self.specular_texture, self.reflectivity_texture]
 
     @cached_property
     def shaders(self) -> list[Program]:
@@ -460,15 +460,14 @@ class VoxelDirectLighting:
 
 
 class VoxelSpecularLighting:
-    def __init__(self, window: WindowConfig, specular_texture: Texture, fresnel_texture: Texture) -> None:
-        self.framebuffer = window.ctx.framebuffer(color_attachments=[specular_texture, fresnel_texture])
+    def __init__(self, window: WindowConfig, specular_texture: Texture, reflictivity_texture: Texture) -> None:
+        self.framebuffer = window.ctx.framebuffer(color_attachments=[specular_texture, reflictivity_texture])
         self.framebuffer.label = "framebuffer_voxel_specular_lighting"
 
         self.voxel_specular_lighting = window.load_program(
             "programs/voxel_specular_lighting.glsl", defines=GLOBAL_DEFINE
         )
         self.voxel_specular_lighting.label = "prog_voxel_specular_lighting"
-        self.voxel_specular_lighting["u_fresnel_factor"] = 0.3
 
         self.stbnormals = window.load_texture_array("assets/stbn_unitvec3.png", layers=64)
         self.stbnormals.label = "texarr_stbn_unitvec3"

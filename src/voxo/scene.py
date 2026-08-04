@@ -18,7 +18,7 @@ class Scene:
         self.ctx = ctx
 
         self.sun = Sun()
-        self.world = World.from_file(Path("./resources/levels/marina_sandbox.lvl"))
+        self.world = World.from_file(Path("./resources/levels/test.lvl"))
         for light in self.world.lights:
             self.add_light(light)
         self.world.texture_information.upload_to_gpu(ctx)

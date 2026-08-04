@@ -302,26 +302,27 @@ class VoxMaterial:
     def from_material(attributes: dict[str, str]) -> "VoxMaterial":
         mat = VoxMaterial()
         mat.material_type = cast("MaterialType", MaterialType._value2member_map_[attributes.get("_type", "")])
-        mat.blend_fresnel = float(attributes.get("_ior", 0.0))
-        mat.refractive_index = float(attributes.get("_ri", 0.0))
-        mat.density = float(attributes.get("_d", 0.0))
-
-        mat.metallic = float(attributes.get("_metal", 0.0))
-        mat.roughness = max(0.0, float(attributes.get("_rough", 0.0)))
-        mat.specular_power = float(attributes.get("_sp", 0.0))
-
-        mat.emission = float(attributes.get("_emit", 0.0))
-        mat.flux = float(attributes.get("_flux", 0.0))
-        mat.low_dynamic_range_intensity = float(attributes.get("_ldr", 0.0))
-
-        mat.media_type = attributes.get("_media_type", "")
-        mat.alpha = max(float(attributes.get("_alpha", 0.0)), float(attributes.get("_trans", 0.0)))
-        mat.phase = float(attributes.get("_g", 0.0))
         if mat.material_type == MaterialType.DIFFUSE:
-            mat.emission = 0.0
-            mat.flux = 0.0
-            mat.metallic = 0.0
-            mat.specular_power = 0.0
+            pass
+        elif mat.material_type == MaterialType.METAL:
+            mat.roughness = max(0.0, float(attributes.get("_rough", 0.0)))
+            mat.blend_fresnel = float(attributes.get("_ior", 0.0))
+            mat.specular_power = float(attributes.get("_sp", 0.0))
+            mat.metallic = float(attributes.get("_metal", 0.0))
+        elif mat.material_type == MaterialType.EMIT:
+            mat.emission = float(attributes.get("_emit", 0.0))
+            mat.flux = float(attributes.get("_flux", 0.0))
+            mat.low_dynamic_range_intensity = float(attributes.get("_ldr", 0.0))
+        elif mat.material_type == MaterialType.GLASS:
+            mat.roughness = max(0.0, float(attributes.get("_rough", 0.0)))
+            mat.blend_fresnel = float(attributes.get("_ior", 0.0))
+            mat.alpha = max(float(attributes.get("_alpha", 0.0)), float(attributes.get("_trans", 0.0)))
+            mat.refractive_index = float(attributes.get("_ri", 0.0))
+            mat.media_type = attributes.get("_media_type", "")
+            mat.density = float(attributes.get("_d", 0.0))
+            mat.phase = float(attributes.get("_g", 0.0))
+        else:
+            raise NotImplementedError
         return mat
 
 
@@ -348,21 +349,24 @@ class VoxModel:
 
     def to_model(self) -> Model:
         assert len(self.palette) == len(self.materials) == 256
-        converted_materials = [
-            ModelMaterial(
-                reflectivity=max(0.0, mat.specular_power - 1.0),
-                roughness=mat.roughness,
-                metallic=mat.metallic,
-                emissive=mat.emission * mat.flux,
-                transparency=mat.alpha,
+        converted_materials = []
+        for mat in self.materials:
+            conv = (
+                ModelMaterial(roughness=1.0)
+                if mat.material_type == MaterialType.DIFFUSE
+                else ModelMaterial(
+                    reflectivity=max(0.0, mat.specular_power - 1.0),
+                    roughness=mat.roughness,
+                    metallic=mat.metallic,  # or (1.0 if mat.material_type == MaterialType.METAL else 0.0),
+                    emissive=mat.emission * glm.pow(10, mat.flux - 1),
+                    transparency=mat.alpha,
+                )
             )
-            for mat in self.materials
-        ]
-        for mat in converted_materials:
-            assert 0.0 <= mat.reflectivity <= 1.0, mat.reflectivity
-            assert 0.0 <= mat.roughness <= 1.0, mat.roughness
-            assert 0.0 <= mat.metallic <= 1.0, mat.metallic
-            assert 0.0 <= mat.emissive <= 400.0, mat.emissive
+            converted_materials.append(conv)
+            assert 0.0 <= conv.reflectivity <= 1.0, conv.reflectivity
+            assert 0.0 <= conv.roughness <= 1.0, conv.roughness
+            assert 0.0 <= conv.metallic <= 1.0, conv.metallic
+            assert 0.0 <= conv.emissive <= 10_000.0, conv.emissive
         return generate_model(
             name=self.shape_name,
             voxels=self.voxels,

@@ -9,6 +9,7 @@ from .objects import World
 
 
 def convert_td_to_level(input_level: Path, output_level: Path | None = None) -> None:
+    print("Converting level", input_level, "to", output_level)  # noqa: T201
     if output_level is None:
         output_level = input_level.parent.parent / input_level.parent.with_suffix(".lvl").name
     vox_objects = list(parse_xml_level(input_level))
