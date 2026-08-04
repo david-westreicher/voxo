@@ -92,7 +92,7 @@ class Material:
 
     def to_tuple(self) -> tuple[float, float, float, float]:
         return (
-            self.reflectivity,
+            self.reflectivity if self.transparency == 0.0 else 1.0,
             self.roughness,
             self.metallic,
             self.emissive or -self.transparency or 0.0,

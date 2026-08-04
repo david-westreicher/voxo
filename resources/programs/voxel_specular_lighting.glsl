@@ -26,6 +26,7 @@ uniform mat4 uInvProjection;
 uniform vec3 sun_direction;
 uniform int frame_counter;
 uniform ivec3 occluder_translation;
+uniform float u_fresnel_factor;
 
 layout(binding = 0) uniform sampler2D u_normal;
 layout(binding = 1) uniform sampler2D u_depth;
@@ -35,6 +36,7 @@ layout(binding = 4) uniform usampler3D u_global_occluder;
 layout(binding = 5) uniform sampler2DArray u_stbn_unitvec3;
 
 layout(location = 0) out vec3 out_specular;
+layout(location = 1) out float out_fresnel;
 
 const int MAX_SPECULAR_SAMPLES = 1;
 const int MAX_SPECULAR_DISTANCE = 400;
@@ -71,6 +73,11 @@ vec3 compute_specular_lighting(vec3 pos, vec3 normal, float reflectivity, float 
     return reflectivity * specular / MAX_SPECULAR_SAMPLES;
 }
 
+float fresnel(float f0, vec3 view_dir, vec3 normal) {
+    float cosTheta = clamp(dot(normal, -view_dir), 0.0, 1.0);
+    return f0 + (1.0 - f0) * pow(1.0 - cosTheta, 5.0);
+}
+
 void main() {
     Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, 0, 0.0);
     float depth = texture(u_depth, uv).r;
@@ -79,10 +86,12 @@ void main() {
     float roughness = reflectivity_roughness.g * 0.3;
     if (depth == 1.0 || reflectivity <= 0.0) {
         out_specular = vec3(0.0);
+        out_fresnel = 0.0;
         return;
     }
     vec3 normal = texture(u_normal, uv).rgb;
     vec3 pos = camera_ray.origin + camera_ray.direction * linear_depth;
+    out_fresnel = fresnel(u_fresnel_factor, camera_ray.direction, normal);
     out_specular = compute_specular_lighting(pos, normal, reflectivity, roughness);
 }
 #endif

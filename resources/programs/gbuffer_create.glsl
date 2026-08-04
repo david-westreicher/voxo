@@ -51,7 +51,7 @@ void main() {
 
 #include programs/pcg_random.glsl
 #include programs/utils.glsl
-#line 22
+#line 55 3
 
 flat in int v_instanceID;
 #if USE_VOXEL_OBJECT_INSTANCING == 0
@@ -100,6 +100,83 @@ vec2 compute_motion_vector(
     return prevUV - screen_uv;
 }
 
+uint voxelmap(vec3 p, Box bbox, usampler3D u_voxel_data)
+{
+    vec3 local_coord = (p + 0.5) / (bbox.max - bbox.min);
+    return textureLod(u_voxel_data, local_coord, 0.0).r;
+}
+
+bool check_voxel_map_hit(vec3 p, Box bbox, usampler3D u_voxel_data, uint material_row) {
+    uint voxel_material = voxelmap(p, bbox, u_voxel_data);
+    if (voxel_material == 0) {
+        return false;
+    }
+
+    ivec2 material_coord = ivec2(voxel_material, material_row);
+    float transparency = -texelFetch(u_full_material_texture, material_coord, 0).a;
+    if (transparency > 0) {
+        ivec2 screen_pos = ivec2(gl_FragCoord.xy);
+        if (((screen_pos.x + screen_pos.y) & 1) == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+Hit dda(Ray ray, int max_steps, usampler3D voxels, Box bbox, uint material_row) {
+    vec3 pos = ray.origin;
+    vec3 rayDir = ray.direction;
+    Hit hit;
+    hit.hit = false;
+
+    vec3 map = floor(pos);
+    vec3 stepDir = vec3(0);
+    vec3 sideDist = vec3(9e9);
+    vec3 deltaDist = 1. / abs(rayDir);
+    float side = 0.;
+    vec3 S = step(0., rayDir);
+
+    stepDir = 2. * S - 1.;
+    sideDist = (S - stepDir * fract(pos)) * deltaDist;
+
+    bool has_entered = is_inside_box(map, bbox);
+    int i;
+    for (i = 0; i < max_steps; i++) {
+        vec4 conds = step(sideDist.xxyy, sideDist.yzzx);
+        vec3 cases = vec3(0);
+        cases.x = conds.x * conds.y;
+        cases.y = (1. - cases.x) * conds.z * conds.w;
+        cases.z = (1. - cases.x) * (1. - cases.y);
+        sideDist += max((2. * cases - 1.) * deltaDist, 0.);
+        map += cases * stepDir;
+        if (is_inside_box(map, bbox) && !has_entered) {
+            has_entered = true;
+        }
+        if (has_entered && !is_inside_box(map, bbox)) {
+            return hit;
+        }
+        if (has_entered && check_voxel_map_hit(map, bbox, voxels, material_row)) // Did we hit anything? if so, we are done!
+        {
+            side = cases.y + 2. * cases.z;
+            break;
+        }
+    }
+    if (!has_entered || i == max_steps) {
+        return hit;
+    }
+    vec3 normal = vec3(0.0);
+    normal[int(side)] = -1. * sign(rayDir[int(side)]); // voxel face debug
+    vec3 p = map + .5 - stepDir * .5; // Point on axis plane
+    float t = (dot(normal, p - pos)) / dot(normal, rayDir);
+
+    hit.hit = true;
+    hit.t = t;
+    hit.position = pos + rayDir * t;
+    hit.voxel = map;
+    hit.normal = normal;
+    return hit;
+}
+
 void main() {
     Object object = objects[v_instanceID];
     mat4 m_model = object.m_model;
@@ -133,16 +210,12 @@ void main() {
         }
         vec3 bbox_hit = local_ray.origin + (t - 0.01) * local_ray.direction;
         Ray bbox_ray = Ray(bbox_hit, local_ray.direction);
-        Hit hit = dda(bbox_ray, MAX_STEPS, u_voxel_data, bbox);
+        Hit hit = dda(bbox_ray, MAX_STEPS, u_voxel_data, bbox, material_row);
         if (hit.hit) {
             uint voxel_material = voxelmap(hit.voxel, bbox, u_voxel_data);
 
             ivec2 material_coord = ivec2(voxel_material, material_row);
             vec4 material = texelFetch(u_full_material_texture, material_coord, 0).rgba;
-            if (material.a < 0.0) {
-                // TODO(david): glass rendering, maybe skip voxels in dda
-                discard;
-            }
             u_material = material;
 
             ivec2 palette_coord = ivec2(voxel_material, palette_row);

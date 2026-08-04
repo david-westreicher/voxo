@@ -23,6 +23,7 @@ layout(binding = 1) uniform sampler2D u_irradiance;
 layout(binding = 2) uniform sampler2D u_specular;
 layout(binding = 3) uniform sampler2D u_depth;
 layout(binding = 4) uniform sampler2D u_material;
+layout(binding = 5) uniform sampler2D u_fresnel;
 
 uniform mat4 uInvView;
 uniform mat4 uInvProjection;
@@ -40,11 +41,19 @@ void main() {
     vec3 albedo = texture(u_albedo, uv).rgb;
     vec3 irradiance = texture(u_irradiance, uv).rgb;
     vec3 specular = texture(u_specular, uv).rgb;
+    float fresnel = texture(u_fresnel, uv).r;
     vec2 metallic_emissive = texture(u_material, uv).ba;
     float metallic = metallic_emissive.r;
-    float emissive = metallic_emissive.g;
+    float emissive = max(0, metallic_emissive.g);
+    float transparency = max(0, -metallic_emissive.g);
 
     specular *= mix(vec3(1.0), albedo, metallic);
-    fragColor = albedo * irradiance + (albedo * emissive * 10.0) + specular;
+    vec3 direct;
+    if (transparency > 0) {
+        direct = albedo * irradiance * (1.0 - fresnel);
+    } else {
+        direct = albedo * irradiance;
+    }
+    fragColor = direct + (albedo * emissive * 10.0) + specular * fresnel;
 }
 #endif

@@ -253,6 +253,7 @@ class ObjectsViewer:
     def __init__(self, scene: Scene, window: ModernglWindowRenderer, window_cfg: WindowConfig) -> None:
         self.scene = scene
         self.selected_object_state: tuple[str, int] | None = None
+        self.filter_text = ""
         self.window = window
 
         self.palette_texture = window.ctx.texture(size=(256, 1), components=3, dtype="f1")
@@ -297,13 +298,22 @@ class ObjectsViewer:
     def render(self) -> None:  # noqa: C901, PLR0912, PLR0915
         if imgui.begin("Objects", p_open=True):
             if imgui.begin_child("object_list", size=(200, 0)):
-                if imgui.collapsing_header(f"Voxos ({len(self.scene.voxel_objects)})"):
-                    for i, obj in enumerate(self.scene.voxel_objects):
+                _, self.filter_text = imgui.input_text("Search", self.filter_text, 256)
+                objects = sorted(
+                    [obj for obj in enumerate(self.scene.voxel_objects) if self.filter_text in obj[1].name],
+                    key=lambda obj: obj[1].name,
+                )
+                if imgui.collapsing_header(f"Voxos ({len(objects)})"):
+                    for i, obj in objects:
                         clicked, _ = imgui.selectable(obj.name, self.selected_object_state == ("Voxos", i))
                         if clicked:
                             self.selected_object_state = ("Voxos", i)
-                if imgui.collapsing_header(f"Lights ({len(self.scene.lights)})"):
-                    for i, light in enumerate(self.scene.lights):
+                lights = sorted(
+                    filter(lambda light: self.filter_text in light[1].name, enumerate(self.scene.lights)),
+                    key=lambda light: light[1].name,
+                )
+                if imgui.collapsing_header(f"Lights ({len(lights)})"):
+                    for i, light in lights:
                         clicked, _ = imgui.selectable(light.name, self.selected_object_state == ("Lights", i))
                         if clicked:
                             self.selected_object_state = ("Lights", i)
