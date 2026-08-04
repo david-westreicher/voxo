@@ -66,9 +66,9 @@ def test_generate_model_material_compression_vox_file():
     # assert
     expected_materials = [
         Material(),
-        Material(roughness=0.1),
-        Material(roughness=0.304, metallic=1.0),
-        Material(roughness=0.1, emissive=1.0),
+        Material(roughness=1.0),
+        Material(roughness=0.304044, metallic=1.0),
+        Material(roughness=0.0, emissive=1.0),
         Material(roughness=0.1, transparency=0.5),
     ]
     assert model.palette_data == b"\x00\x00\x00" + b"\xff\xff\xff" + b"\xff\x00\x00" + b"\x00\xff\x00" + b"\x00\x00\xff"

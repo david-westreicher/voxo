@@ -26,7 +26,6 @@ uniform mat4 uInvProjection;
 uniform vec3 sun_direction;
 uniform int frame_counter;
 uniform ivec3 occluder_translation;
-uniform float u_fresnel_factor;
 
 layout(binding = 0) uniform sampler2D u_normal;
 layout(binding = 1) uniform sampler2D u_depth;
@@ -36,7 +35,7 @@ layout(binding = 4) uniform usampler3D u_global_occluder;
 layout(binding = 5) uniform sampler2DArray u_stbn_unitvec3;
 
 layout(location = 0) out vec3 out_specular;
-layout(location = 1) out float out_fresnel;
+layout(location = 1) out float out_reflectivity;
 
 const int MAX_SPECULAR_SAMPLES = 1;
 const int MAX_SPECULAR_DISTANCE = 400;
@@ -52,7 +51,7 @@ vec3 reflect(vec3 I, vec3 N) {
     return I - 2.0 * dot(N, I) * N;
 }
 
-vec3 compute_specular_lighting(vec3 pos, vec3 normal, float reflectivity, float roughness) {
+vec3 compute_specular_lighting(vec3 pos, vec3 normal, float roughness) {
     vec3 ray_start = pos + normal * 1.0;
 
     // Specular Lighting
@@ -65,12 +64,13 @@ vec3 compute_specular_lighting(vec3 pos, vec3 normal, float reflectivity, float 
         occ_ray.origin -= occluder_translation;
         Hit occ_hit = sparse_raymarch(occ_ray, MAX_SPECULAR_DISTANCE, u_global_occluder, bbox, 16);
         if (!occ_hit.hit) {
-            specular += skyColor(occ_ray.direction, sun_direction);
+            // TODO(david): sun should also specular reflect
+            specular += skyColor(occ_ray.direction, vec3(sun_direction.x, -1.0, sun_direction.z));
         } else {
             // TODO(david): We could take a screen space sample here from the last frame's final texture, also use rejection
         }
     }
-    return reflectivity * specular / MAX_SPECULAR_SAMPLES;
+    return specular / MAX_SPECULAR_SAMPLES;
 }
 
 float fresnel(float f0, vec3 view_dir, vec3 normal) {
@@ -81,17 +81,26 @@ float fresnel(float f0, vec3 view_dir, vec3 normal) {
 void main() {
     Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, 0, 0.0);
     float depth = texture(u_depth, uv).r;
-    vec2 reflectivity_roughness = texture(u_material, uv).rg;
-    float reflectivity = reflectivity_roughness.r;
-    float roughness = reflectivity_roughness.g * 0.3;
-    if (depth == 1.0 || reflectivity <= 0.0) {
+    vec4 material = texture(u_material, uv);
+    float reflectivity = material.r;
+    float roughness = material.g;
+    float transparency = max(0.0, -material.a);
+    if (depth == 1.0) {
         out_specular = vec3(0.0);
-        out_fresnel = 0.0;
+        out_reflectivity = 0.0;
         return;
     }
     vec3 normal = texture(u_normal, uv).rgb;
+    float f0 = (transparency > 0.0) ? 0.04 : 0.9;
+    float fresnel_factor = fresnel(f0, camera_ray.direction, normal);
+    float smooth_reflectivity = mix(0.1, 1.0, (1.0 - roughness)) * fresnel_factor;
+    out_reflectivity = mix(smooth_reflectivity, 1.0, reflectivity);
+    if (out_reflectivity <= 0.0) {
+        out_specular = vec3(0.0);
+        return;
+    }
+
     vec3 pos = camera_ray.origin + camera_ray.direction * linear_depth;
-    out_fresnel = fresnel(u_fresnel_factor, camera_ray.direction, normal);
-    out_specular = compute_specular_lighting(pos, normal, reflectivity, roughness);
+    out_specular = compute_specular_lighting(pos, normal, roughness * 0.1);
 }
 #endif

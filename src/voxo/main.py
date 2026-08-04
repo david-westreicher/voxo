@@ -223,7 +223,7 @@ class VoxoWindow(CameraWindow):
                 suns=self.scene.suns,
                 irradiance=self.voxel_lighting.irradiance_texture,
                 specular=self.voxel_lighting.specular_texture,
-                fresnel=self.voxel_lighting.fresnel_texture,
+                reflectivity=self.voxel_lighting.reflectivity_texture,
                 current_gbuffer=self.gbuffer.current,
                 last_gbuffer=self.gbuffer.last,
                 frame_counter=self.frame_counter,

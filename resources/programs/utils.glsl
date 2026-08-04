@@ -37,7 +37,7 @@ Ray compute_camera_ray(vec2 screen_uv, mat4 uInvProjection, mat4 uInvView, int f
 vec3 skyColor(vec3 rd, vec3 sun_direction)
 {
     float up = max(rd.y, 0.0);
-    vec3 zenith = vec3(0.18, 0.35, 1.00);
+    vec3 zenith = vec3(0.18, 0.35, 1.00) * 2.0;
     vec3 horizon = vec3(0.75, 0.85, 1.20);
     vec3 ground = vec3(0.03);
 
