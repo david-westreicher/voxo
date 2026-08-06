@@ -141,6 +141,8 @@ class PostProcessing:
         self.quad.render(self.postprocessing_program)
 
         self.bloom.render(self.final_texture)
+
+        self.final_framebuffer.use()
         self.bloom.add_final_bloom(strength=1.0)
 
     def render_final_tonemapped_texture(self) -> None:
