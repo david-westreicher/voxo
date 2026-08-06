@@ -30,7 +30,7 @@ layout(binding = 1) uniform sampler2D u_depth;
 layout(binding = 2) uniform sampler2D u_linear_depth;
 layout(binding = 3) uniform sampler2D u_material;
 layout(binding = 4) uniform usampler3D u_global_occluder;
-layout(binding = 5) uniform sampler2D u_last_composite;
+layout(binding = 5) uniform sampler2D u_diffuse_composite;
 layout(binding = 6) uniform sampler2DArray u_stbn_unitvec3;
 
 layout(location = 0) out vec3 out_specular;
@@ -81,7 +81,7 @@ vec3 compute_specular_lighting(vec3 pos, vec3 normal, float roughness) {
         } else {
             vec3 global_hit_position = occ_hit.position + occluder_translation;
             if (distance(pos, global_hit_position) <= MAX_SCREEN_SPACE_REFLECTION_DISTANCE) {
-                specular += sample_screen_space(global_hit_position, u_last_composite);
+                specular += sample_screen_space(global_hit_position, u_diffuse_composite);
             }
         }
     }

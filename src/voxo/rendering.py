@@ -119,8 +119,6 @@ class PostProcessing:
         self.postprocessing_program.label = "prog_postprocessing"
         self.tonemapping_program = window.load_program("programs/tonemapping.glsl", defines=GLOBAL_DEFINE)
         self.tonemapping_program.label = "prog_tonemapping"
-        self.full_screen_pass_program = window.load_program("programs/full_screen_pass.glsl", defines=GLOBAL_DEFINE)
-        self.full_screen_pass_program.label = "prog_full_screen_pass"
         self.quad = geometry.quad_fs(normals=False, uvs=True)
 
         self.bloom = Bloom(window, size)
