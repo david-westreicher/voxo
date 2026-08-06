@@ -204,29 +204,50 @@ class VoxoWindow(CameraWindow):
             gbuffer.smooth_normals(self.synced_camera)
 
         # Compute lighting
-        with self.profile("compute lighting"):
-            self.voxel_lighting.render(
+        with self.profile("ambient"):
+            self.voxel_lighting.clear()
+            self.voxel_lighting.render_ambient(
                 self.synced_camera,
-                gbuffer,
+                self.gbuffer.current,
+                self.global_occluder,
+                self.frame_counter,
+            )
+        with self.profile("direct"):
+            self.voxel_lighting.render_direct(
+                self.synced_camera,
+                self.gbuffer.current,
                 self.global_occluder,
                 self.scene.lights,
                 self.scene.suns,
                 self.frame_counter,
+            )
+        with self.profile("denoise direct"):
+            self.voxel_lighting.denoise_direct(
+                self.synced_camera,
+                self.gbuffer.current,
+                self.gbuffer.last,
+                self.frame_counter,
+                camera_moved=self.last_frame_projview
+                != (self.synced_camera.projection.matrix @ self.synced_camera.matrix),
+            )
+        with self.profile("specular"):
+            self.voxel_lighting.render_specular(
+                self.synced_camera,
+                self.gbuffer.current,
+                self.gbuffer.last,
+                self.global_occluder,
+                self.frame_counter,
+                camera_moved=self.last_frame_projview
+                != (self.synced_camera.projection.matrix @ self.synced_camera.matrix),
             )
 
         # Post processing
         with self.profile("post processing"):
             self.post_processing.render(
                 camera=self.synced_camera,
-                camera_moved=self.last_frame_projview
-                != (self.synced_camera.projection.matrix @ self.synced_camera.matrix),
                 suns=self.scene.suns,
-                irradiance=self.voxel_lighting.irradiance_texture,
-                specular=self.voxel_lighting.specular_texture,
-                reflectivity=self.voxel_lighting.reflectivity_texture,
-                current_gbuffer=self.gbuffer.current,
-                last_gbuffer=self.gbuffer.last,
-                frame_counter=self.frame_counter,
+                light_texture=self.voxel_lighting.final_light_texture,
+                depth_texture=gbuffer.depth_texture,
             )
             self.ctx.screen.use()
             self.post_processing.render_final_tonemapped_texture()

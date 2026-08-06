@@ -18,12 +18,8 @@ void main() {
 
 in vec2 uv;
 
-layout(binding = 0) uniform sampler2D u_albedo;
-layout(binding = 1) uniform sampler2D u_irradiance;
-layout(binding = 2) uniform sampler2D u_specular;
-layout(binding = 3) uniform sampler2D u_depth;
-layout(binding = 4) uniform sampler2D u_material;
-layout(binding = 5) uniform sampler2D u_reflectivity;
+layout(binding = 0) uniform sampler2D u_light;
+layout(binding = 1) uniform sampler2D u_depth;
 
 uniform mat4 uInvView;
 uniform mat4 uInvProjection;
@@ -38,16 +34,6 @@ void main() {
         fragColor = skyColor(camera_ray.direction, sun_direction);
         return;
     }
-    vec3 albedo = texture(u_albedo, uv).rgb;
-    vec3 irradiance = texture(u_irradiance, uv).rgb;
-    vec3 specular = texture(u_specular, uv).rgb;
-    float reflectivity = texture(u_reflectivity, uv).r;
-    vec2 metallic_emissive = texture(u_material, uv).ba;
-    float metallic = metallic_emissive.r;
-    float emissive = max(0, metallic_emissive.g);
-    float transparency = max(0, -metallic_emissive.g);
-
-    specular *= mix(vec3(1.0), albedo, metallic);
-    fragColor = albedo * (irradiance + emissive * 10.0) + specular * reflectivity;
+    fragColor = texture(u_light, uv).rgb;
 }
 #endif

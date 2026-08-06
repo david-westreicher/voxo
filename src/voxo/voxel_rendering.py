@@ -5,6 +5,7 @@ from itertools import groupby
 from typing import cast
 
 import moderngl
+import moderngl_window
 from moderngl import ComputeShader, Program, Texture
 from moderngl_window import geometry
 from moderngl_window.context.base import WindowConfig
@@ -22,7 +23,7 @@ from .constants import (
     VOXEL_OBJECT_COUNT_PER_BATCH,
 )
 from .objects import AreaLight, ConeLight, Light, Object, SphereLight, Sun, VoxelObject
-from .rendering import GBuffer
+from .rendering import Denoiser, GBuffer
 from .utils import chunk_iters
 
 
@@ -217,6 +218,11 @@ class VoxelLighting:
         self.direct_lighting = VoxelDirectLighting(window, self.irradiance_texture)
         self.specular_lighting = VoxelSpecularLighting(window, self.specular_texture, self.reflectivity_texture)
 
+        self.irradiance_denoiser_1 = Denoiser(window, size, "irradiance_denoiser_1")
+        self.irradiance_denoiser_2 = Denoiser(window, size, "irradiance_denoiser_2")
+        self.specular_denoiser = Denoiser(window, size, "specular_denoiser")
+        self.compositor = LightCompositor(window, size)
+
         self.lighting_clearer = window.ctx.framebuffer(
             color_attachments=[
                 self.specular_texture,
@@ -226,41 +232,132 @@ class VoxelLighting:
         )
         self.lighting_clearer.label = "framebuffer_voxel_lighting_clearer"
 
-    def render(  # noqa: PLR0913
+    def clear(self) -> None:
+        ctx = self.irradiance_texture.ctx
+        ctx.disable(moderngl.DEPTH_TEST)
+        self.lighting_clearer.clear(red=0, green=0, blue=0)
+
+    def render_ambient(
         self,
         camera: Camera,
-        gbuffer: GBuffer,
+        current_gbuffer: GBuffer,
+        occluder: GlobalOccluder,
+        frame_counter: int,
+    ) -> None:
+        self.ambient_lighting.render(camera, current_gbuffer, occluder, frame_counter)
+
+    def render_direct(  # noqa: PLR0913
+        self,
+        camera: Camera,
+        current_gbuffer: GBuffer,
         occluder: GlobalOccluder,
         lights: Sequence[Light],
         suns: Sequence[Sun],
         frame_counter: int,
     ) -> None:
         ctx = self.irradiance_texture.ctx
-        ctx.disable(moderngl.DEPTH_TEST)
-        self.lighting_clearer.clear(red=0, green=0, blue=0)
-
-        self.ambient_lighting.render(camera, gbuffer, occluder, frame_counter)
-
         ctx.enable_only(moderngl.BLEND)
         ctx.blend_equation = moderngl.FUNC_ADD  # type:ignore[assignment]
         ctx.blend_func = (moderngl.ONE, moderngl.ONE)
         for sun in suns:
             if not sun.visible:
                 continue
-            self.direct_lighting.render_sun(camera, gbuffer, occluder, sun, frame_counter)
-        self.direct_lighting.render_lights(camera, gbuffer, occluder, lights, frame_counter)
+            self.direct_lighting.render_sun(camera, current_gbuffer, occluder, sun, frame_counter)
+        self.direct_lighting.render_lights(camera, current_gbuffer, occluder, lights, frame_counter)
         ctx.disable(moderngl.BLEND)
 
-        sun_direction = suns[0].direction if suns and suns[0].visible else glm.vec3(0, -1, 0)
-        self.specular_lighting.render(camera, sun_direction, gbuffer, occluder, frame_counter)
+    def denoise_direct(
+        self,
+        camera: Camera,
+        current_gbuffer: GBuffer,
+        last_gbuffer: GBuffer,
+        frame_counter: int,
+        *,
+        camera_moved: bool,
+    ) -> None:
+        self.irradiance_denoiser_1.render(
+            camera=camera,
+            camera_moved=camera_moved,
+            current_texture=self.irradiance_texture,
+            motion_vectors=current_gbuffer.motion_vectors,
+            current_depth=current_gbuffer.linear_depth,
+            last_depth=last_gbuffer.linear_depth,
+            current_normals=current_gbuffer.normal_texture,
+            frame_counter=frame_counter,
+            last_texture=self.irradiance_denoiser_2.clean_texture,
+        )
+        self.irradiance_denoiser_2.render(
+            camera=camera,
+            camera_moved=camera_moved,
+            current_texture=self.irradiance_denoiser_1.clean_texture,
+            motion_vectors=current_gbuffer.motion_vectors,
+            current_depth=current_gbuffer.linear_depth,
+            last_depth=last_gbuffer.linear_depth,
+            current_normals=current_gbuffer.normal_texture,
+            frame_counter=frame_counter + 1,
+        )
+        self.compositor.composite_diffuse(current_gbuffer, self.irradiance_denoiser_2.clean_texture)
+
+    def render_specular(  # noqa: PLR0913
+        self,
+        camera: Camera,
+        current_gbuffer: GBuffer,
+        last_gbuffer: GBuffer,
+        occluder: GlobalOccluder,
+        frame_counter: int,
+        *,
+        camera_moved: bool,
+    ) -> None:
+        self.specular_lighting.render(
+            camera,
+            current_gbuffer,
+            occluder,
+            self.compositor.output_texture,
+            frame_counter,
+        )
+        self.specular_denoiser.render(
+            camera=camera,
+            camera_moved=camera_moved,
+            current_texture=self.specular_texture,
+            motion_vectors=current_gbuffer.motion_vectors,
+            current_depth=current_gbuffer.linear_depth,
+            last_depth=last_gbuffer.linear_depth,
+            current_normals=current_gbuffer.normal_texture,
+            frame_counter=frame_counter,
+        )
+        self.compositor.composite_specular(
+            current_gbuffer,
+            self.specular_denoiser.clean_texture,
+            self.reflectivity_texture,
+        )
+
+    @property
+    def final_light_texture(self) -> Texture:
+        return self.compositor.output_texture
 
     @cached_property
     def textures(self) -> list[Texture]:
-        return [self.irradiance_texture, self.specular_texture, self.reflectivity_texture]
+        return [
+            self.irradiance_texture,
+            self.specular_texture,
+            self.reflectivity_texture,
+            *self.compositor.textures,
+            *self.irradiance_denoiser_1.textures,
+            *self.irradiance_denoiser_2.textures,
+            *self.specular_denoiser.textures,
+        ]
 
     @cached_property
     def shaders(self) -> list[Program]:
-        return [*self.ambient_lighting.shaders, *self.direct_lighting.shaders, *self.specular_lighting.shaders]
+        return [
+            *self.ambient_lighting.shaders,
+            *self.direct_lighting.shaders,
+            *self.specular_lighting.shaders,
+            *self.compositor.shaders,
+            *self.irradiance_denoiser_1.shaders,
+            *self.irradiance_denoiser_2.shaders,
+            *self.specular_denoiser.shaders,
+        ]
 
 
 class VoxelAmbientLighting:
@@ -478,9 +575,9 @@ class VoxelSpecularLighting:
     def render(
         self,
         camera: Camera,
-        sun_direction: glm.vec3,
         gbuffer: GBuffer,
         occluder: GlobalOccluder,
+        color_texture: Texture,
         frame_counter: int,
     ) -> None:
         self.framebuffer.use()
@@ -488,17 +585,62 @@ class VoxelSpecularLighting:
         self.voxel_specular_lighting["occluder_translation"].write(glm.ivec3(occluder.occluder_volume.translation))
         self.voxel_specular_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.voxel_specular_lighting["uInvView"].write(glm.inverse(camera.matrix))
-        self.voxel_specular_lighting["sun_direction"].write(sun_direction)
+        self.voxel_specular_lighting["u_projection_view"].write(camera.projection.matrix @ camera.matrix)
         self.voxel_specular_lighting["frame_counter"] = frame_counter
         gbuffer.smooth_normal_texture.use(location=0)
         gbuffer.depth_texture.use(location=1)
         gbuffer.linear_depth.use(location=2)
         gbuffer.material_texture.use(location=3)
         occluder.occluder_texture.use(location=4)
-        self.stbnormals.use(location=5)
+        color_texture.use(location=5)
+        self.stbnormals.use(location=6)
 
         self.quad_fs.render(self.voxel_specular_lighting)
 
     @cached_property
     def shaders(self) -> list[Program]:
         return [self.voxel_specular_lighting]
+
+
+class LightCompositor:
+    def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int]) -> None:  # type: ignore[name-defined]
+        self.output_texture: Texture = window.ctx.texture(size=size, components=3, dtype="f2")
+        self.output_texture.label = "tex2d_light_composite"
+        self.output_texture.repeat_x = False
+        self.output_texture.repeat_y = False
+        self.framebuffer = window.ctx.framebuffer(color_attachments=[self.output_texture])
+        self.framebuffer.label = "framebuffer_light_composite"
+
+        self.comp_diffuse = window.load_program("programs/composite_diffuse.glsl", defines=GLOBAL_DEFINE)
+        self.comp_diffuse.label = "prog_composite_diffuse"
+        self.comp_specular = window.load_program("programs/composite_specular.glsl", defines=GLOBAL_DEFINE)
+        self.comp_specular.label = "prog_composite_specular"
+        self.quad = geometry.quad_fs(normals=False, uvs=True)
+
+    def composite_diffuse(self, gbuffer: GBuffer, clean_diffuse: Texture) -> None:
+        self.framebuffer.use()
+
+        gbuffer.albedo_texture.use(location=0)
+        clean_diffuse.use(location=1)
+        gbuffer.material_texture.use(location=2)
+        gbuffer.depth_texture.use(location=3)
+        self.quad.render(self.comp_diffuse)
+
+    def composite_specular(self, gbuffer: GBuffer, clean_specular: Texture, reflectivity: Texture) -> None:
+        self.framebuffer.use()
+
+        gbuffer.albedo_texture.use(location=0)
+        self.output_texture.use(location=1)
+        clean_specular.use(location=2)
+        gbuffer.material_texture.use(location=3)
+        reflectivity.use(location=4)
+        gbuffer.depth_texture.use(location=5)
+        self.quad.render(self.comp_specular)
+
+    @cached_property
+    def textures(self) -> list[Texture]:
+        return [self.output_texture]
+
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [self.comp_diffuse]

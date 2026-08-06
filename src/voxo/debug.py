@@ -202,7 +202,7 @@ class TextureViewer:
         imgui.end()
 
 
-class SettingsViewer:
+class FrameTimeViewer:
     def __init__(self) -> None:
         self.stop_frame_counter = False
         self.buffers: dict[str, ScrollingBuffer] = defaultdict(ScrollingBuffer)
@@ -584,7 +584,7 @@ class DebugView(ModernglWindowRenderer):
         self.register_texture(self.objects_viewer.material_texture)
         self.register_texture(self.objects_viewer.palette_texture)
         self.shader_viewer = ShaderViewer(shaders)
-        self.settings = SettingsViewer()
+        self.frame_time_viewer = FrameTimeViewer()
         self.scene = scene
         self.camera = camera
 
@@ -593,7 +593,7 @@ class DebugView(ModernglWindowRenderer):
 
     @property
     def is_frame_counter_stopped(self) -> bool:
-        return self.settings.stop_frame_counter
+        return self.frame_time_viewer.stop_frame_counter
 
     def find_selected_object(self, screen_coord: ImVec2) -> VoxelObject | None:
         def cam_distance(obj: VoxelObject) -> float:
@@ -619,7 +619,7 @@ class DebugView(ModernglWindowRenderer):
         self.texture_viewer.render()
         self.objects_viewer.render()
         self.shader_viewer.render()
-        self.settings.render(self.profiler.all_timings(global_frame_counter, frametime))
+        self.frame_time_viewer.render(self.profiler.all_timings(global_frame_counter, frametime))
         imgui.render()
 
         selected_texture = self.texture_viewer.textures[self.texture_viewer.selected_texture]

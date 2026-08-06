@@ -112,8 +112,8 @@ class PostProcessing:
         self.final_texture.label = "tex2d_postprocessing_final"
         self.final_texture.repeat_x = False
         self.final_texture.repeat_y = False
-        self.framebuffer = window.ctx.framebuffer(color_attachments=[self.final_texture])
-        self.framebuffer.label = "framebuffer_postprocessing"
+        self.final_framebuffer = window.ctx.framebuffer(color_attachments=[self.final_texture])
+        self.final_framebuffer.label = "framebuffer_postprocessing_final"
 
         self.postprocessing_program = window.load_program("programs/postprocessing.glsl", defines=GLOBAL_DEFINE)
         self.postprocessing_program.label = "prog_postprocessing"
@@ -121,75 +121,28 @@ class PostProcessing:
         self.tonemapping_program.label = "prog_tonemapping"
         self.quad = geometry.quad_fs(normals=False, uvs=True)
 
-        self.irradiance_taa = TAA(window, size, "irradiance")
-        self.irradiance_taa_2 = TAA(window, size, "irradiance_2")
-        self.specular_taa = TAA(window, size, "specular")
-
         self.bloom = Bloom(window, size)
 
-    def render(  # noqa: PLR0913
+    def render(
         self,
         camera: Camera,
         suns: Sequence[Sun],
-        irradiance: Texture,
-        specular: Texture,
-        reflectivity: Texture,
-        current_gbuffer: GBuffer,
-        last_gbuffer: GBuffer,
-        frame_counter: int,
-        *,
-        camera_moved: bool,
+        light_texture: Texture,
+        depth_texture: Texture,
     ) -> None:
-        self.irradiance_taa.render(
-            camera=camera,
-            camera_moved=camera_moved,
-            current_texture=irradiance,
-            motion_vectors=current_gbuffer.motion_vectors,
-            current_depth=current_gbuffer.linear_depth,
-            last_depth=last_gbuffer.linear_depth,
-            current_normals=current_gbuffer.normal_texture,
-            frame_counter=frame_counter,
-            last_texture=self.irradiance_taa_2.clean_texture,
-        )
-        self.irradiance_taa_2.render(
-            camera=camera,
-            camera_moved=camera_moved,
-            current_texture=self.irradiance_taa.clean_texture,
-            motion_vectors=current_gbuffer.motion_vectors,
-            current_depth=current_gbuffer.linear_depth,
-            last_depth=last_gbuffer.linear_depth,
-            current_normals=current_gbuffer.normal_texture,
-            frame_counter=frame_counter + 1,
-        )
-        self.specular_taa.render(
-            camera=camera,
-            camera_moved=camera_moved,
-            current_texture=specular,
-            motion_vectors=current_gbuffer.motion_vectors,
-            current_depth=current_gbuffer.linear_depth,
-            last_depth=last_gbuffer.linear_depth,
-            current_normals=current_gbuffer.normal_texture,
-            frame_counter=frame_counter,
-        )
+        sun_direction = suns[0].direction if suns and suns[0].visible else glm.vec3(0, -1, 0)
 
-        self.framebuffer.use()
-
+        self.final_framebuffer.use()
         self.postprocessing_program["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.postprocessing_program["uInvView"].write(glm.inverse(camera.matrix))
-        if suns and suns[0].visible:
-            self.postprocessing_program["sun_direction"].write(suns[0].direction)
-        else:
-            self.postprocessing_program["sun_direction"].write(glm.vec3(0, -1, 0))
-        current_gbuffer.albedo_texture.use(location=0)
-        self.irradiance_taa_2.clean_texture.use(location=1)
-        self.specular_taa.clean_texture.use(location=2)
-        current_gbuffer.depth_texture.use(location=3)
-        current_gbuffer.material_texture.use(location=4)
-        reflectivity.use(location=5)
+        self.postprocessing_program["sun_direction"].write(sun_direction)
+        light_texture.use(location=0)
+        depth_texture.use(location=1)
         self.quad.render(self.postprocessing_program)
 
         self.bloom.render(self.final_texture)
-        self.framebuffer.use()
+
+        self.final_framebuffer.use()
         self.bloom.add_final_bloom(strength=1.0)
 
     def render_final_tonemapped_texture(self) -> None:
@@ -200,9 +153,6 @@ class PostProcessing:
     def textures(self) -> list[Texture]:
         return [
             self.final_texture,
-            *self.irradiance_taa.textures,
-            *self.irradiance_taa_2.textures,
-            *self.specular_taa.textures,
             *self.bloom.textures,
         ]
 
@@ -211,14 +161,11 @@ class PostProcessing:
         return [
             self.postprocessing_program,
             self.tonemapping_program,
-            *self.irradiance_taa.shaders,
-            *self.irradiance_taa_2.shaders,
-            *self.specular_taa.shaders,
             *self.bloom.shaders,
         ]
 
 
-class TAA:
+class Denoiser:
     def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int], name: str) -> None:  # type: ignore[name-defined]
         self.pingpong = 0
         self.textures: list[Texture] = []
@@ -226,13 +173,13 @@ class TAA:
         for i in range(2):
             self.textures.append(window.ctx.texture(size=size, components=3, dtype="f2"))
             self.textures[-1].filter = moderngl.LINEAR, moderngl.LINEAR
-            self.textures[-1].label = f"tex2d_postprocessing_taa_{name}_{i}"
+            self.textures[-1].label = f"tex2d_{name}_{i}"
             self.framebuffers.append(window.ctx.framebuffer(color_attachments=[self.textures[-1]]))
-            self.framebuffers[-1].label = f"framebuffer_taa_{name}_{i}"
+            self.framebuffers[-1].label = f"framebuffer_{name}_{i}"
         self.stbn_scalar = window.load_texture_array("assets/stbn_scalar.png", layers=64)
         self.stbn_scalar.filter = (moderngl.NEAREST, moderngl.NEAREST)
-        self.program = window.load_program("programs/taa.glsl", defines=GLOBAL_DEFINE)
-        self.program.label = f"prog_postprocessing_taa_{name}"
+        self.program = window.load_program("programs/denoise.glsl", defines=GLOBAL_DEFINE)
+        self.program.label = f"prog_{name}"
         self.quad = geometry.quad_fs(normals=False, uvs=True)
 
     @property
