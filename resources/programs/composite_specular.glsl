@@ -1,0 +1,44 @@
+#version 420
+
+#if defined VERTEX_SHADER
+
+in vec3 in_position;
+in vec2 in_texcoord_0;
+
+out vec2 uv;
+
+void main() {
+    gl_Position = vec4(in_position, 1);
+    uv = in_texcoord_0;
+}
+
+#elif defined FRAGMENT_SHADER
+#include programs/utils.glsl
+#line 18
+
+in vec2 uv;
+
+layout(binding = 0) uniform sampler2D u_albedo;
+layout(binding = 1) uniform sampler2D u_diffuse;
+layout(binding = 2) uniform sampler2D u_specular;
+layout(binding = 3) uniform sampler2D u_material;
+layout(binding = 4) uniform sampler2D u_reflectivity;
+layout(binding = 5) uniform sampler2D u_depth;
+
+layout(location = 0) out vec3 fragColor;
+
+void main() {
+    float depth = texture(u_depth, uv).r;
+    if (depth == 1.0) {
+        return;
+    }
+    vec3 albedo = texture(u_albedo, uv).rgb;
+    vec3 diffuse = texture(u_diffuse, uv).rgb;
+    vec3 specular = texture(u_specular, uv).rgb;
+    float metallic = texture(u_material, uv).b;
+    float reflectivity = texture(u_reflectivity, uv).r;
+
+    specular *= mix(vec3(1.0), albedo, metallic);
+    fragColor = diffuse + specular * reflectivity;
+}
+#endif

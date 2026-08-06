@@ -38,6 +38,7 @@ layout(location = 1) out float out_reflectivity;
 
 const int MAX_SPECULAR_SAMPLES = 1;
 const int MAX_SPECULAR_DISTANCE = 400;
+const float MAX_SCREEN_SPACE_REFLECTION_DISTANCE = 30.0;
 
 uint rnd_seed = uint(gl_FragCoord.x) + uint(gl_FragCoord.y) * 4097U + uint(frame_counter);
 int normal_rand_state = int(rnd_seed) % 64;
@@ -79,7 +80,9 @@ vec3 compute_specular_lighting(vec3 pos, vec3 normal, float roughness) {
             specular += skyColor(occ_ray.direction, vec3(-1.0));
         } else {
             vec3 global_hit_position = occ_hit.position + occluder_translation;
-            specular += sample_screen_space(global_hit_position, u_last_composite);
+            if (distance(pos, global_hit_position) <= MAX_SCREEN_SPACE_REFLECTION_DISTANCE) {
+                specular += sample_screen_space(global_hit_position, u_last_composite);
+            }
         }
     }
     return specular / MAX_SPECULAR_SAMPLES;

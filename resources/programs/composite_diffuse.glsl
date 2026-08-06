@@ -18,22 +18,22 @@ void main() {
 
 in vec2 uv;
 
-layout(binding = 0) uniform sampler2D u_light;
-layout(binding = 1) uniform sampler2D u_depth;
-
-uniform mat4 uInvView;
-uniform mat4 uInvProjection;
-uniform vec3 sun_direction;
+layout(binding = 0) uniform sampler2D u_albedo;
+layout(binding = 1) uniform sampler2D u_irradiance;
+layout(binding = 2) uniform sampler2D u_material;
+layout(binding = 3) uniform sampler2D u_depth;
 
 layout(location = 0) out vec3 fragColor;
 
 void main() {
     float depth = texture(u_depth, uv).r;
     if (depth == 1.0) {
-        Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, 0, 0.0);
-        fragColor = skyColor(camera_ray.direction, sun_direction);
         return;
     }
-    fragColor = texture(u_light, uv).rgb;
+    vec3 albedo = texture(u_albedo, uv).rgb;
+    vec3 irradiance = texture(u_irradiance, uv).rgb;
+    float emissive = max(0, texture(u_material, uv).a);
+
+    fragColor = albedo * (irradiance + emissive * 10.0);
 }
 #endif
