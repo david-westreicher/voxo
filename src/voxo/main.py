@@ -109,6 +109,8 @@ class VoxoWindow(CameraWindow):
                 *self.gbuffer.textures,
                 *self.voxel_lighting.textures,
                 *self.post_processing.textures,
+                self.scene.world.texture_information.material_texture,
+                self.scene.world.texture_information.palette_texture,
             ],
             [
                 *self.gbuffer.shaders,
