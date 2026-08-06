@@ -108,17 +108,26 @@ class SmoothNormals:
 
 class PostProcessing:
     def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int]) -> None:  # type: ignore[name-defined]
+        self.composite_texture = window.ctx.texture(size=size, components=3, dtype="f2")
+        self.composite_texture.label = "tex2d_postprocessing_composite"
+        self.composite_texture.repeat_x = False
+        self.composite_texture.repeat_y = False
+        self.composite_framebuffer = window.ctx.framebuffer(color_attachments=[self.composite_texture])
+        self.composite_framebuffer.label = "framebuffer_postprocessing_composite"
+
         self.final_texture = window.ctx.texture(size=size, components=3, dtype="f2")
         self.final_texture.label = "tex2d_postprocessing_final"
         self.final_texture.repeat_x = False
         self.final_texture.repeat_y = False
-        self.framebuffer = window.ctx.framebuffer(color_attachments=[self.final_texture])
-        self.framebuffer.label = "framebuffer_postprocessing"
+        self.final_framebuffer = window.ctx.framebuffer(color_attachments=[self.final_texture])
+        self.final_framebuffer.label = "framebuffer_postprocessing_final"
 
         self.postprocessing_program = window.load_program("programs/postprocessing.glsl", defines=GLOBAL_DEFINE)
         self.postprocessing_program.label = "prog_postprocessing"
         self.tonemapping_program = window.load_program("programs/tonemapping.glsl", defines=GLOBAL_DEFINE)
         self.tonemapping_program.label = "prog_tonemapping"
+        self.full_screen_pass_program = window.load_program("programs/full_screen_pass.glsl", defines=GLOBAL_DEFINE)
+        self.full_screen_pass_program.label = "prog_full_screen_pass"
         self.quad = geometry.quad_fs(normals=False, uvs=True)
 
         self.irradiance_taa = TAA(window, size, "irradiance")
@@ -172,7 +181,7 @@ class PostProcessing:
             frame_counter=frame_counter,
         )
 
-        self.framebuffer.use()
+        self.composite_framebuffer.use()
 
         self.postprocessing_program["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.postprocessing_program["uInvView"].write(glm.inverse(camera.matrix))
@@ -188,8 +197,11 @@ class PostProcessing:
         reflectivity.use(location=5)
         self.quad.render(self.postprocessing_program)
 
-        self.bloom.render(self.final_texture)
-        self.framebuffer.use()
+        self.bloom.render(self.composite_texture)
+
+        self.final_framebuffer.use()
+        self.composite_texture.use(location=0)
+        self.quad.render(self.full_screen_pass_program)
         self.bloom.add_final_bloom(strength=1.0)
 
     def render_final_tonemapped_texture(self) -> None:
@@ -200,6 +212,7 @@ class PostProcessing:
     def textures(self) -> list[Texture]:
         return [
             self.final_texture,
+            self.composite_texture,
             *self.irradiance_taa.textures,
             *self.irradiance_taa_2.textures,
             *self.specular_taa.textures,

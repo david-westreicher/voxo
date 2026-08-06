@@ -15,15 +15,13 @@ void main() {
 #elif defined FRAGMENT_SHADER
 #include programs/pcg_random.glsl
 #include programs/utils.glsl
-#line 19
+#line 19 3
 
 in vec2 uv;
 
-uniform mat4 uView;
-uniform mat4 uProjection;
+uniform mat4x4 u_projection_view;
 uniform mat4 uInvView;
 uniform mat4 uInvProjection;
-uniform vec3 sun_direction;
 uniform int frame_counter;
 uniform ivec3 occluder_translation;
 
@@ -32,7 +30,8 @@ layout(binding = 1) uniform sampler2D u_depth;
 layout(binding = 2) uniform sampler2D u_linear_depth;
 layout(binding = 3) uniform sampler2D u_material;
 layout(binding = 4) uniform usampler3D u_global_occluder;
-layout(binding = 5) uniform sampler2DArray u_stbn_unitvec3;
+layout(binding = 5) uniform sampler2D u_last_composite;
+layout(binding = 6) uniform sampler2DArray u_stbn_unitvec3;
 
 layout(location = 0) out vec3 out_specular;
 layout(location = 1) out float out_reflectivity;
@@ -51,6 +50,18 @@ vec3 reflect(vec3 I, vec3 N) {
     return I - 2.0 * dot(N, I) * N;
 }
 
+vec3 sample_screen_space(vec3 pos, sampler2D tex) {
+    vec2 uv = world_to_uv(pos, u_projection_view);
+    if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) {
+        return vec3(0.0);
+    }
+    float screen_depth = texture(u_linear_depth, uv).r;
+    float cam_distance = distance(camera_pos, pos);
+    vec3 screen_space_color = texture(tex, uv).rgb;
+    float reprojection_error = min(distance(screen_depth, cam_distance), 1.0);
+    return mix(screen_space_color, vec3(0.0), reprojection_error);
+}
+
 vec3 compute_specular_lighting(vec3 pos, vec3 normal, float roughness) {
     vec3 ray_start = pos + normal * 1.0;
 
@@ -65,9 +76,10 @@ vec3 compute_specular_lighting(vec3 pos, vec3 normal, float roughness) {
         Hit occ_hit = sparse_raymarch(occ_ray, MAX_SPECULAR_DISTANCE, u_global_occluder, bbox, 16);
         if (!occ_hit.hit) {
             // TODO(david): sun should also specular reflect
-            specular += skyColor(occ_ray.direction, vec3(sun_direction.x, -1.0, sun_direction.z));
+            specular += skyColor(occ_ray.direction, vec3(-1.0));
         } else {
-            // TODO(david): We could take a screen space sample here from the last frame's final texture, also use rejection
+            vec3 global_hit_position = occ_hit.position + occluder_translation;
+            specular += sample_screen_space(global_hit_position, u_last_composite);
         }
     }
     return specular / MAX_SPECULAR_SAMPLES;
@@ -91,7 +103,7 @@ void main() {
         return;
     }
     vec3 normal = texture(u_normal, uv).rgb;
-    float f0 = (transparency > 0.0) ? 0.04 : 0.9;
+    float f0 = (transparency > 0.0) ? 0.04 : 0.04; // TODO(david): should different material have different fresnel
     float fresnel_factor = fresnel(f0, camera_ray.direction, normal);
     float smooth_reflectivity = mix(0.1, 1.0, (1.0 - roughness)) * fresnel_factor;
     out_reflectivity = mix(smooth_reflectivity, 1.0, reflectivity);

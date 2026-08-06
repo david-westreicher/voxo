@@ -212,6 +212,9 @@ class VoxelLighting:
         self.specular_texture.label = "tex_specular_texture"
         self.reflectivity_texture = window.ctx.texture(size=size, components=1, dtype="f2")
         self.reflectivity_texture.label = "tex_reflectivity_texture"
+        # TODO(david): Could use a lower resolution for color buffer
+        self.diffuse_buffer = window.ctx.texture(size=size, components=3, dtype="f2")
+        self.diffuse_buffer.label = "tex_diffuse_buffer"
 
         self.ambient_lighting = VoxelAmbientLighting(window, self.irradiance_texture)
         self.direct_lighting = VoxelDirectLighting(window, self.irradiance_texture)
@@ -251,12 +254,20 @@ class VoxelLighting:
         self.direct_lighting.render_lights(camera, gbuffer, occluder, lights, frame_counter)
         ctx.disable(moderngl.BLEND)
 
+        # TODO(david): Denoise the irradiance_texture and composite with albedo/emission into diffuse-buffer
+        # Use this defuse buffer for reflection, for now we just use the previous composite texture
+
         sun_direction = suns[0].direction if suns and suns[0].visible else glm.vec3(0, -1, 0)
         self.specular_lighting.render(camera, sun_direction, gbuffer, occluder, frame_counter)
 
     @cached_property
     def textures(self) -> list[Texture]:
-        return [self.irradiance_texture, self.specular_texture, self.reflectivity_texture]
+        return [
+            self.irradiance_texture,
+            self.specular_texture,
+            self.reflectivity_texture,
+            self.diffuse_buffer,
+        ]
 
     @cached_property
     def shaders(self) -> list[Program]:
@@ -488,14 +499,15 @@ class VoxelSpecularLighting:
         self.voxel_specular_lighting["occluder_translation"].write(glm.ivec3(occluder.occluder_volume.translation))
         self.voxel_specular_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.voxel_specular_lighting["uInvView"].write(glm.inverse(camera.matrix))
-        self.voxel_specular_lighting["sun_direction"].write(sun_direction)
+        self.voxel_specular_lighting["u_projection_view"].write(camera.projection.matrix @ camera.matrix)
         self.voxel_specular_lighting["frame_counter"] = frame_counter
         gbuffer.smooth_normal_texture.use(location=0)
         gbuffer.depth_texture.use(location=1)
         gbuffer.linear_depth.use(location=2)
         gbuffer.material_texture.use(location=3)
         occluder.occluder_texture.use(location=4)
-        self.stbnormals.use(location=5)
+        gbuffer.albedo_texture.use(location=5)
+        self.stbnormals.use(location=6)
 
         self.quad_fs.render(self.voxel_specular_lighting)
 
