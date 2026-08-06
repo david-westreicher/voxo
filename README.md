@@ -70,6 +70,7 @@ Teardown-like voxel renderer
 
 ```bash
 virtualenv .env
+source .env/bin/activate
 pip install .
 
 python -m voxo

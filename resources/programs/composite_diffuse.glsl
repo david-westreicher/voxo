@@ -33,6 +33,6 @@ void main() {
     vec3 irradiance = texture(u_irradiance, uv).rgb;
     float emissive = max(0, texture(u_material, uv).a);
 
-    fragColor = albedo * (irradiance + emissive * 10.0);
+    fragColor = albedo * (irradiance + emissive);
 }
 #endif
