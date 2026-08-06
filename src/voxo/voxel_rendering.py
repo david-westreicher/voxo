@@ -232,24 +232,30 @@ class VoxelLighting:
         )
         self.lighting_clearer.label = "framebuffer_voxel_lighting_clearer"
 
-    def render(  # noqa: PLR0913
-        self,
-        camera: Camera,
-        current_gbuffer: GBuffer,
-        last_gbuffer: GBuffer,
-        occluder: GlobalOccluder,
-        lights: Sequence[Light],
-        suns: Sequence[Sun],
-        frame_counter: int,
-        *,
-        camera_moved: bool,
-    ) -> None:
+    def clear(self) -> None:
         ctx = self.irradiance_texture.ctx
         ctx.disable(moderngl.DEPTH_TEST)
         self.lighting_clearer.clear(red=0, green=0, blue=0)
 
+    def render_ambient(
+        self,
+        camera: Camera,
+        current_gbuffer: GBuffer,
+        occluder: GlobalOccluder,
+        frame_counter: int,
+    ) -> None:
         self.ambient_lighting.render(camera, current_gbuffer, occluder, frame_counter)
 
+    def render_direct(  # noqa: PLR0913
+        self,
+        camera: Camera,
+        current_gbuffer: GBuffer,
+        occluder: GlobalOccluder,
+        lights: Sequence[Light],
+        suns: Sequence[Sun],
+        frame_counter: int,
+    ) -> None:
+        ctx = self.irradiance_texture.ctx
         ctx.enable_only(moderngl.BLEND)
         ctx.blend_equation = moderngl.FUNC_ADD  # type:ignore[assignment]
         ctx.blend_func = (moderngl.ONE, moderngl.ONE)
@@ -260,6 +266,15 @@ class VoxelLighting:
         self.direct_lighting.render_lights(camera, current_gbuffer, occluder, lights, frame_counter)
         ctx.disable(moderngl.BLEND)
 
+    def denoise_direct(
+        self,
+        camera: Camera,
+        current_gbuffer: GBuffer,
+        last_gbuffer: GBuffer,
+        frame_counter: int,
+        *,
+        camera_moved: bool,
+    ) -> None:
         self.irradiance_denoiser_1.render(
             camera=camera,
             camera_moved=camera_moved,
@@ -283,6 +298,16 @@ class VoxelLighting:
         )
         self.compositor.composite_diffuse(current_gbuffer, self.irradiance_denoiser_2.clean_texture)
 
+    def render_specular(  # noqa: PLR0913
+        self,
+        camera: Camera,
+        current_gbuffer: GBuffer,
+        last_gbuffer: GBuffer,
+        occluder: GlobalOccluder,
+        frame_counter: int,
+        *,
+        camera_moved: bool,
+    ) -> None:
         self.specular_lighting.render(
             camera,
             current_gbuffer,
