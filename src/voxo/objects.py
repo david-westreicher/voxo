@@ -491,6 +491,7 @@ class Water(Object):
         vertices_num, *_ = struct.unpack("<I", f.read(4))
         vertices = [glm.vec2.from_bytes(f.read(8)) for _ in range(vertices_num)]
         return Water(
+            name=obj.name,
             translation=obj.translation,
             rotation=obj.rotation,
             color=color,

@@ -35,6 +35,7 @@ def test_world_write_load(tmp_path: Path):
     # assert
     assert world.voxel_objects == parsed_world.voxel_objects
     assert world.lights == parsed_world.lights
+    assert world.waters == parsed_world.waters
     assert world.texture_information == parsed_world.texture_information
 
 
