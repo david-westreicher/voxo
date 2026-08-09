@@ -2,9 +2,9 @@ from collections.abc import Sequence
 from functools import cached_property
 
 import moderngl
-import moderngl_window
 from moderngl import Framebuffer, Program, Texture
 from moderngl_window import geometry
+from moderngl_window.context.base.window import WindowConfig
 from moderngl_window.scene import Camera
 from pyglm import glm
 
@@ -13,7 +13,7 @@ from .objects import Light, Object, Sun, VoxelObject, Water
 
 
 class GBuffer:
-    def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int]) -> None:  # type: ignore[name-defined]
+    def __init__(self, window: WindowConfig, size: tuple[int, int]) -> None:
         self.albedo_texture = window.ctx.texture(size=size, components=3, dtype="f2")
         self.normal_texture = window.ctx.texture(size=size, components=3, dtype="f2")
         self.normal_texture.filter = moderngl.NEAREST, moderngl.NEAREST
@@ -52,14 +52,14 @@ class GBuffer:
 
     def start(self) -> None:
         # Clear depth and linear depth buffers
-        self.framebuffer.color_mask = [(val,) * 4 for val in [False, False, True, False, False]]
+        self.framebuffer.color_mask = [(val,) * 4 for val in [False, False, True, False, False]]  # type:ignore[assignment]
         self.framebuffer.clear(red=max(GLOBAL_OCCLUDER_DIMENSIONS) * 10.0, depth=1.0)
-        self.framebuffer.color_mask = [(val,) * 4 for val in [True, False, False, False, False]]
+        self.framebuffer.color_mask = [(val,) * 4 for val in [True, False, False, False, False]]  # type:ignore[assignment]
         self.framebuffer.clear(red=0.0, green=0.0, blue=0.0)
 
         ctx = self.framebuffer.ctx
         ctx.enable_only(moderngl.DEPTH_TEST)
-        self.framebuffer.color_mask = [(True,) * 4] * len(self.framebuffer.color_attachments)
+        self.framebuffer.color_mask = [(True,) * 4] * len(self.framebuffer.color_attachments)  # type:ignore[assignment]
         self.framebuffer.use()
 
     def smooth_normals(self, camera: Camera) -> None:
@@ -83,7 +83,7 @@ class GBuffer:
 
 
 class SmoothNormals:
-    def __init__(self, window: moderngl_window.WindowConfig, output_texture: Texture) -> None:  # type: ignore[name-defined]
+    def __init__(self, window: WindowConfig, output_texture: Texture) -> None:
         self.program = window.load_program("programs/smooth_normals.glsl")
         self.program.label = "prog_smooth_normals"
         self.program["input_texture"].value = 0
@@ -109,7 +109,9 @@ class SmoothNormals:
 
 
 class PostProcessing:
-    def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int]) -> None:  # type: ignore[name-defined]
+    def __init__(self, window: WindowConfig, size: tuple[int, int], skybox: Texture) -> None:
+        self.sky_texture = skybox
+
         self.final_texture = window.ctx.texture(size=size, components=3, dtype="f2")
         self.final_texture.label = "tex2d_postprocessing_final"
         self.final_texture.repeat_x = False
@@ -133,13 +135,16 @@ class PostProcessing:
         depth_texture: Texture,
     ) -> None:
         sun_direction = suns[0].direction if suns and suns[0].visible else glm.vec3(0, -1, 0)
+        sun_color = suns[0].color if suns and suns[0].visible else glm.vec3(0, -1, 0)
 
         self.final_framebuffer.use()
         self.postprocessing_program["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.postprocessing_program["uInvView"].write(glm.inverse(camera.matrix))
         self.postprocessing_program["sun_direction"].write(sun_direction)
+        self.postprocessing_program["sun_color"].write(sun_color)
         light_texture.use(location=0)
         depth_texture.use(location=1)
+        self.sky_texture.use(location=2)
         self.quad.render(self.postprocessing_program)
 
         self.bloom.render(self.final_texture)
@@ -155,6 +160,7 @@ class PostProcessing:
     def textures(self) -> list[Texture]:
         return [
             self.final_texture,
+            self.sky_texture,
             *self.bloom.textures,
         ]
 
@@ -168,7 +174,7 @@ class PostProcessing:
 
 
 class Denoiser:
-    def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int], name: str) -> None:  # type: ignore[name-defined]
+    def __init__(self, window: WindowConfig, size: tuple[int, int], name: str) -> None:
         self.pingpong = 0
         self.textures: list[Texture] = []
         self.framebuffers: list[Framebuffer] = []
@@ -234,7 +240,7 @@ class Denoiser:
 
 
 class Bloom:
-    def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int]) -> None:  # type: ignore[name-defined]
+    def __init__(self, window: WindowConfig, size: tuple[int, int]) -> None:
         self.blurrer = []
         size = (size[0] // 2, size[1] // 2)
 
@@ -270,7 +276,7 @@ class Bloom:
 
         ctx = self.exposed_texture.ctx
         ctx.enable_only(moderngl.BLEND)
-        ctx.blend_equation = moderngl.FUNC_ADD
+        ctx.blend_equation = moderngl.FUNC_ADD  # type:ignore[assignment]
         ctx.blend_func = (moderngl.ONE, moderngl.ONE)
 
         self.upsample_blur["strength"] = 0.7
@@ -288,7 +294,7 @@ class Bloom:
     def add_final_bloom(self, strength: float) -> None:
         ctx = self.exposed_texture.ctx
         ctx.enable_only(moderngl.BLEND)
-        ctx.blend_equation = moderngl.FUNC_ADD
+        ctx.blend_equation = moderngl.FUNC_ADD  # type:ignore[assignment]
         ctx.blend_func = (moderngl.ONE, moderngl.ONE)
         self.exposed_texture.use(location=0)
         self.upsample_blur["strength"] = strength
@@ -305,7 +311,7 @@ class Bloom:
 
 
 class Blur:
-    def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int]) -> None:  # type: ignore[name-defined]
+    def __init__(self, window: WindowConfig, size: tuple[int, int]) -> None:
         self.textures: list[Texture] = []
         self.framebuffers = []
         for i in range(2):
@@ -345,7 +351,7 @@ class Blur:
 
 
 class WaterRenderer:
-    def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int]) -> None:  # type: ignore[name-defined]
+    def __init__(self, window: WindowConfig, size: tuple[int, int]) -> None:
         self.water_normal_1 = window.load_texture_2d("assets/water_01_normal.jpg")
         self.water_normal_1.label = "texture2d_water_01_normal"
         self.water_normal_2 = window.load_texture_2d("assets/water_02_normal.jpg")
@@ -400,7 +406,7 @@ class WaterRenderer:
 
 
 class WireFrameRenderer:
-    def __init__(self, window: moderngl_window.WindowConfig) -> None:  # type: ignore[name-defined]
+    def __init__(self, window: WindowConfig) -> None:
         self.prog = window.load_program("programs/cube_simple.glsl")
         self.prog.label = "prog_cube_simple"
         self.prog["color"].value = 1.0, 1.0, 0.0
@@ -436,7 +442,7 @@ class WireFrameRenderer:
 
 
 class GBufferPingPong:
-    def __init__(self, window: moderngl_window.WindowConfig, dimensions: tuple[int, int]) -> None:  # type: ignore[name-defined]
+    def __init__(self, window: WindowConfig, dimensions: tuple[int, int]) -> None:
         self.buffers = [GBuffer(window, dimensions) for _ in range(2)]
         for i, gbuffer in enumerate(self.buffers):
             gbuffer.label(i)

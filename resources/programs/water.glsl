@@ -66,7 +66,8 @@ void main() {
     float current_linear_depth = distance(v_world_pos, u_camera_pos);
     float water_depth = clamp(abs(prev_linear_depth - current_linear_depth) / 100.0, 0.0, 1.0);
     vec3 water_color = mix(u_color, u_color * 0.5, water_depth);
-    vec3 final_normal = normalize(mix(vec3(0, 1, 0), water_normal(v_world_pos, u_frame_counter * 0.002), 0.3));
+    vec3 water_norm = water_normal(v_world_pos, u_frame_counter * 0.005);
+    vec3 final_normal = normalize(mix(vec3(0, 1, 0), water_norm, 0.3));
     vec2 refracted_uv = (final_normal.xz / SCREEN_DIMENSIONS) * 100.0;
     vec3 prev_albedo = texture(u_in_albedo, uv + refracted_uv).rgb;
 
@@ -74,7 +75,7 @@ void main() {
     u_normal = final_normal;
     u_linear_depth = current_linear_depth;
     u_motion_vector = vec2(-2.0, 0.0);
-    u_material = vec4(0.5, 0.0, 0.1, 0.0);
+    u_material = vec4(0.1, 0.0, 0.1, 0.0);
     gl_FragDepth = worldPosToDepth(v_world_pos);
 }
 #endif

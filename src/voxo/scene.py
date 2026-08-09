@@ -1,13 +1,36 @@
 from collections.abc import Sequence
-from functools import cached_property
+from dataclasses import dataclass
+from functools import cache, cached_property
 from pathlib import Path
 
-from moderngl import Context
+import numpy as np
+from moderngl import Context, Texture
+from moderngl_window.context.base.window import WindowConfig
 from moderngl_window.scene.camera import Camera
 from pyglm import glm
 
 from .objects import Light, Sun, VoxelObject, Water, World
-from .utils import chunk_iters, frustum_cull_spheres
+from .utils import chunk_iters, frustum_cull_spheres, hdr_texture
+
+
+@dataclass
+class SkySetting:
+    sun_direction: glm.vec3
+    sun_color: glm.vec3
+    sky_texture: Path
+
+
+SUNNY = SkySetting(
+    sun_direction=glm.normalize(glm.vec3(0.50, 0.72, 0.33)),
+    sun_color=glm.vec3(4.4, 4.0, 3.0),
+    sky_texture=Path("assets") / "kloofendal_48d_partly_cloudy_puresky_2k.hdr",
+)
+SUNDOWNER = SkySetting(
+    sun_direction=glm.normalize(glm.vec3(0.60, 0.05, 0.33)),
+    sun_color=glm.vec3(3.0, 1.5, 0.8),
+    sky_texture=Path("assets") / "citrus_orchard_road_puresky_2k.hdr",
+)
+SKY_SETTING = SUNNY
 
 
 class Scene:
@@ -19,6 +42,9 @@ class Scene:
         self.ctx = ctx
 
         self.sun = Sun()
+        self.sun.direction = SKY_SETTING.sun_direction
+        self.sun.color = SKY_SETTING.sun_color
+
         self.world = World.from_file(Path("./resources/levels/test.lvl"))
         # self.world = World.from_file(Path("./resources/levels/carib_sandbox.lvl"))  # noqa: ERA001
         # self.world = World.from_file(Path("./resources/levels/caveisland_sandbox.lvl"))  # noqa: ERA001
@@ -56,13 +82,11 @@ class Scene:
     def suns(self) -> Sequence[Sun]:
         return [self.sun]
 
-    def update(self, time: float) -> None:
+    def update(self, time: float) -> None:  # noqa: ARG002
         objs = next(self.object_generator, None)
         if objs is not None:
             for obj in objs:
                 self.add_voxel_object(obj)
-
-        self.sun.direction = glm.normalize(glm.vec3(glm.sin(time), 1, glm.cos(time)))
 
     def visible_objects(self, camera: Camera) -> list[VoxelObject]:
         bounding_spheres = [obj.bounding_sphere for obj in self.voxel_objects]
@@ -75,3 +99,18 @@ class Scene:
             )
             if vis and obj.visible
         ]
+
+
+@cache
+def global_skybox(window: WindowConfig) -> Texture:
+    def remove_sun(image: np.ndarray) -> np.ndarray:
+        return np.array(np.minimum(image, 10000.0))
+
+    assert window.resource_dir
+    sky_texture = hdr_texture(
+        window.resource_dir / SKY_SETTING.sky_texture,
+        window.ctx,
+        post_processing=remove_sun,
+    )
+    sky_texture.label = "texture2d_hdr_sky"
+    return sky_texture

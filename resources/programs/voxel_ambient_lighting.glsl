@@ -34,6 +34,7 @@ layout(binding = 2) uniform sampler2D u_linear_depth;
 layout(binding = 3) uniform usampler3D u_global_occluder;
 layout(binding = 4) uniform sampler2DArray u_stbn_normals;
 layout(binding = 5) uniform sampler2DArray u_stbn_vec3;
+layout(binding = 6) uniform sampler2D u_skybox;
 
 layout(location = 0) out vec3 out_irradiance;
 

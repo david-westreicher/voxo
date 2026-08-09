@@ -20,7 +20,7 @@ from .constants import (
 )
 from .debug import DebugView
 from .rendering import GBufferPingPong, PostProcessing, WaterRenderer, WireFrameRenderer
-from .scene import Scene
+from .scene import Scene, global_skybox
 from .voxel_rendering import GlobalOccluder, VoxelLighting, VoxelRenderer
 
 if TYPE_CHECKING:
@@ -96,10 +96,10 @@ class VoxoWindow(CameraWindow):
         self.global_occluder = GlobalOccluder(self, GLOBAL_OCCLUDER_DIMENSIONS, center=True)
         self.voxel_renderer = VoxelRenderer(self)
         self.gbuffer = GBufferPingPong(self, SCREEN_DIMENSIONS)
-        self.voxel_lighting = VoxelLighting(self, SCREEN_DIMENSIONS)
+        self.voxel_lighting = VoxelLighting(self, SCREEN_DIMENSIONS, global_skybox(self))
         self.wireframe_box = WireFrameRenderer(self)
         self.water_renderer = WaterRenderer(self, SCREEN_DIMENSIONS)
-        self.post_processing = PostProcessing(self, SCREEN_DIMENSIONS)
+        self.post_processing = PostProcessing(self, SCREEN_DIMENSIONS, global_skybox(self))
 
         self.scene = Scene(self.ctx)
         self.debugger = DebugView(
