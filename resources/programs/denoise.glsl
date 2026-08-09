@@ -35,7 +35,6 @@ layout(binding = 6) uniform sampler2D tex_last_depth;
 
 layout(location = 0) out vec3 clean_color;
 
-const float PI = 3.14159265;
 const float GOLDEN_RATIO = 2.39996;
 vec2 texel_size = 1.0 / vec2(textureSize(tex_current, 0));
 uint rnd_seed = uint(gl_FragCoord.x) + uint(gl_FragCoord.y) * 4097U + uint(frame_counter);

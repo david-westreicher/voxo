@@ -206,7 +206,7 @@ class VoxelRenderer:
 
 
 class VoxelLighting:
-    def __init__(self, window: WindowConfig, size: tuple[int, int]) -> None:
+    def __init__(self, window: WindowConfig, size: tuple[int, int], skybox: Texture) -> None:
         self.irradiance_texture = window.ctx.texture(size=size, components=3, dtype="f2")
         self.irradiance_texture.label = "tex_irradiance_texture"
         self.specular_texture = window.ctx.texture(size=size, components=3, dtype="f2")
@@ -214,9 +214,9 @@ class VoxelLighting:
         self.reflectivity_texture = window.ctx.texture(size=size, components=1, dtype="f2")
         self.reflectivity_texture.label = "tex_reflectivity_texture"
 
-        self.ambient_lighting = VoxelAmbientLighting(window, self.irradiance_texture)
+        self.ambient_lighting = VoxelAmbientLighting(window, self.irradiance_texture, skybox)
         self.direct_lighting = VoxelDirectLighting(window, self.irradiance_texture)
-        self.specular_lighting = VoxelSpecularLighting(window, self.specular_texture, self.reflectivity_texture)
+        self.specular_lighting = VoxelSpecularLighting(window, self.specular_texture, self.reflectivity_texture, skybox)
 
         self.irradiance_denoiser_1 = Denoiser(window, size, "irradiance_denoiser_1")
         self.irradiance_denoiser_2 = Denoiser(window, size, "irradiance_denoiser_2")
@@ -363,7 +363,9 @@ class VoxelLighting:
 
 
 class VoxelAmbientLighting:
-    def __init__(self, window: WindowConfig, irradiance_texture: Texture) -> None:
+    def __init__(self, window: WindowConfig, irradiance_texture: Texture, skybox: Texture) -> None:
+        self.skybox = skybox
+
         self.framebuffer = window.ctx.framebuffer(color_attachments=[irradiance_texture])
         self.framebuffer.label = "framebuffer_voxel_ambient_lighting"
 
@@ -394,6 +396,7 @@ class VoxelAmbientLighting:
         occluder.occluder_texture.use(location=3)
         self.stbnormals.use(location=4)
         self.stbn_vec3.use(location=5)
+        self.skybox.use(location=6)
 
         self.quad_fs.render(self.voxel_ambient_lighting)
 
@@ -559,7 +562,15 @@ class VoxelDirectLighting:
 
 
 class VoxelSpecularLighting:
-    def __init__(self, window: WindowConfig, specular_texture: Texture, reflictivity_texture: Texture) -> None:
+    def __init__(
+        self,
+        window: WindowConfig,
+        specular_texture: Texture,
+        reflictivity_texture: Texture,
+        skybox: Texture,
+    ) -> None:
+        self.skybox = skybox
+
         self.framebuffer = window.ctx.framebuffer(color_attachments=[specular_texture, reflictivity_texture])
         self.framebuffer.label = "framebuffer_voxel_specular_lighting"
 
@@ -584,6 +595,7 @@ class VoxelSpecularLighting:
         frame_counter: int,
     ) -> None:
         sun_direction = suns[0].direction if suns and suns[0].visible else glm.vec3(-1)
+        sun_color = suns[0].color if suns and suns[0].visible else glm.vec3(-1)
 
         self.framebuffer.use()
 
@@ -592,6 +604,7 @@ class VoxelSpecularLighting:
         self.voxel_specular_lighting["uInvView"].write(glm.inverse(camera.matrix))
         self.voxel_specular_lighting["u_projection_view"].write(camera.projection.matrix @ camera.matrix)
         self.voxel_specular_lighting["sun_direction"].write(sun_direction)
+        self.voxel_specular_lighting["sun_color"].write(sun_color)
         self.voxel_specular_lighting["frame_counter"] = frame_counter
         gbuffer.normal_texture.use(location=0)
         gbuffer.depth_texture.use(location=1)
@@ -600,6 +613,7 @@ class VoxelSpecularLighting:
         occluder.occluder_texture.use(location=4)
         color_texture.use(location=5)
         self.stbnormals.use(location=6)
+        self.skybox.use(location=7)
 
         self.quad_fs.render(self.voxel_specular_lighting)
 

@@ -68,8 +68,6 @@ layout(binding = 4) uniform sampler2DArray u_stbn_vec2;
 
 layout(location = 0) out vec3 out_irradiance;
 
-const float PI = 3.14159265;
-
 vec2 uv = gl_FragCoord.xy / SCREEN_DIMENSIONS;
 vec3 size = textureSize(u_voxel_data, 0);
 Box bbox = Box(vec3(0.0), vec3(size));

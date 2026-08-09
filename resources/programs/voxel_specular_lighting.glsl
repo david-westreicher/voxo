@@ -25,6 +25,7 @@ uniform mat4 uInvProjection;
 uniform int frame_counter;
 uniform ivec3 occluder_translation;
 uniform vec3 sun_direction;
+uniform vec3 sun_color;
 
 layout(binding = 0) uniform sampler2D u_normal;
 layout(binding = 1) uniform sampler2D u_depth;
@@ -33,6 +34,7 @@ layout(binding = 3) uniform sampler2D u_material;
 layout(binding = 4) uniform usampler3D u_global_occluder;
 layout(binding = 5) uniform sampler2D u_diffuse_composite;
 layout(binding = 6) uniform sampler2DArray u_stbn_unitvec3;
+layout(binding = 7) uniform sampler2D u_skybox;
 
 layout(location = 0) out vec3 out_specular;
 layout(location = 1) out float out_reflectivity;
@@ -81,7 +83,7 @@ vec3 compute_specular_lighting(vec3 pos, vec3 normal, float roughness) {
         occ_ray.origin -= occluder_translation;
         Hit occ_hit = sparse_raymarch(occ_ray, MAX_SPECULAR_DISTANCE, u_global_occluder, bbox, 16);
         if (!occ_hit.hit) {
-            specular += skyColor(occ_ray.direction, sun_direction);
+            specular += sky_color(u_skybox, occ_ray.direction, sun_direction, sun_color);
         } else {
             vec3 global_hit_position = occ_hit.position + occluder_translation;
             float reflection_distance = distance(pos, global_hit_position);

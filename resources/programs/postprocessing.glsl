@@ -20,10 +20,12 @@ in vec2 uv;
 
 layout(binding = 0) uniform sampler2D u_light;
 layout(binding = 1) uniform sampler2D u_depth;
+layout(binding = 2) uniform sampler2D u_skybox;
 
 uniform mat4 uInvView;
 uniform mat4 uInvProjection;
 uniform vec3 sun_direction;
+uniform vec3 sun_color;
 
 layout(location = 0) out vec3 fragColor;
 
@@ -31,7 +33,7 @@ void main() {
     float depth = texture(u_depth, uv).r;
     if (depth == 1.0) {
         Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, 0, 0.0);
-        fragColor = skyColor(camera_ray.direction, sun_direction);
+        fragColor = sky_color(u_skybox, camera_ray.direction, sun_direction, sun_color);
         return;
     }
     fragColor = texture(u_light, uv).rgb;

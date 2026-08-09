@@ -1,11 +1,15 @@
 import math
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from itertools import islice
+from pathlib import Path
 from typing import TypeVar, cast
 
+import imageio as imageio_base
+import imageio.v3 as imageio
 import moderngl as mlg
 import numpy as np
+from moderngl import Context, Texture
 from moderngl_window.geometry import AttributeNames
 from moderngl_window.opengl.vao import VAO
 from pyglm import glm
@@ -207,3 +211,13 @@ def hemisphere(
     vao.buffer(np.array(vertices_l, dtype=np.float32), "3f", [attr_names.POSITION])
     vao.index_buffer(np.array(indices, dtype=np.uint32), index_element_size=4)
     return vao
+
+
+def hdr_texture(path: Path, ctx: Context, post_processing: Callable[[np.ndarray], np.ndarray] | None = None) -> Texture:
+    imageio_base.plugins.freeimage.download()
+    image = imageio.imread(path).astype(np.float16)[::-1, :, :]
+    if post_processing:
+        image = post_processing(image)
+    image = np.ascontiguousarray(image)
+    size = tuple(image.shape[:-1])[::-1]
+    return ctx.texture(size, components=image.shape[-1], data=image, dtype="f2")
