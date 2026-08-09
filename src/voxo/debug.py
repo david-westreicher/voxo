@@ -16,7 +16,7 @@ from moderngl_window.scene import Camera
 from pyglm import glm
 
 from .constants import SCREEN_DIMENSIONS
-from .objects import AreaLight, Light, Object, SphereLight, Sun, VoxelObject
+from .objects import AreaLight, Light, Object, SphereLight, Sun, VoxelObject, Water
 from .scene import Scene
 from .utils import compute_camera_ray, ray_sphere_intersection
 
@@ -326,6 +326,11 @@ class ObjectsViewer:
                         clicked, _ = imgui.selectable(sun.name, self.selected_object_state == ("Suns", i))
                         if clicked:
                             self.selected_object_state = ("Suns", i)
+                if imgui.collapsing_header(f"Water ({len(self.scene.waters)})"):
+                    for i, water in enumerate(self.scene.waters):
+                        clicked, _ = imgui.selectable(water.name, self.selected_object_state == ("Waters", i))
+                        if clicked:
+                            self.selected_object_state = ("Waters", i)
                 if imgui.collapsing_header("Models"):
                     self.draw_model_file_tree(self.MODEL_DIR)
             imgui.end_child()
@@ -469,6 +474,12 @@ class ObjectsViewer:
                             flags=imgui.SliderFlags_.logarithmic,  # type:ignore[arg-type]
                         )
 
+                    if isinstance(self.selected_object, Water):
+                        imgui.separator_text("Water")
+
+                        _, new_col = imgui.color_edit3("color", self.selected_object.color.to_list())
+                        self.selected_object.color = glm.vec3(new_col)
+
                 else:
                     imgui.text("No Object selected.")
             imgui.end_child()
@@ -486,6 +497,8 @@ class ObjectsViewer:
             return self.scene.lights[index]
         if obj_type == "Voxos":
             return self.scene.voxel_objects[index]
+        if obj_type == "Waters":
+            return self.scene.waters[index]
         return None
 
 

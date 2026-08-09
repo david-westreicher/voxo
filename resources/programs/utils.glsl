@@ -39,15 +39,8 @@ vec3 skyColor(vec3 rd, vec3 sun_direction)
     float up = max(rd.y, 0.0);
     vec3 zenith = vec3(0.18, 0.35, 1.00) * 2.0;
     vec3 horizon = vec3(0.75, 0.85, 1.20);
-    vec3 ground = vec3(0.03);
 
     vec3 color = mix(horizon, zenith, pow(up, 0.35));
-
-    color = mix(
-            ground,
-            color,
-            smoothstep(-0.05, 0.02, rd.y)
-        );
 
     // Warm horizon glow
     color += vec3(1.0, 0.6, 0.2) * pow(1.0 - up, 6.0) * 0.5;
@@ -58,7 +51,7 @@ vec3 skyColor(vec3 rd, vec3 sun_direction)
         color += vec3(20.0, 18.0, 14.0) * pow(sun, 128.0);
 
         // Sun disc (HDR)
-        color += vec3(200.0) * pow(sun, 80.0);
+        color += vec3(20.0) * pow(sun, 80.0);
     }
     return color;
 }

@@ -4,7 +4,7 @@ import pytest
 from moderngl import Context
 from pyglm import glm
 
-from voxo.model.level_parser import VoxLight
+from voxo.model.level_parser import VoxLight, VoxWater
 from voxo.model.vox_parser import MaterialType, VoxMaterial, VoxModel
 from voxo.objects import AreaLight, World
 
@@ -19,7 +19,13 @@ def test_world_write_load(tmp_path: Path):
         materials=[VoxMaterial(MaterialType.METAL)] * 256,
     )
     vox_light = VoxLight(name="test", light_type="sphere", size=glm.vec2(1, 2), light_size=0.5)
-    world = World.from_vox_objects(vox_models=[vox_model], vox_lights=[vox_light])
+    vox_water = VoxWater(
+        translation=glm.vec3(1.0, 2.0, 3.0),
+        rotation=glm.quat(),
+        color=glm.vec3(0.1, 0.2, 0.3),
+        vertices=[glm.vec2(0, 0), glm.vec2(1, 1), glm.vec2(1, 0)],
+    )
+    world = World.from_vox_objects(vox_models=[vox_model], vox_lights=[vox_light], vox_waters=[vox_water])
     test_file = tmp_path / "test.level"
 
     # act

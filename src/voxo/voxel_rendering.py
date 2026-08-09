@@ -304,6 +304,7 @@ class VoxelLighting:
         current_gbuffer: GBuffer,
         last_gbuffer: GBuffer,
         occluder: GlobalOccluder,
+        suns: Sequence[Sun],
         frame_counter: int,
         *,
         camera_moved: bool,
@@ -311,6 +312,7 @@ class VoxelLighting:
         self.specular_lighting.render(
             camera,
             current_gbuffer,
+            suns,
             occluder,
             self.compositor.output_texture,
             frame_counter,
@@ -469,7 +471,7 @@ class VoxelDirectLighting:
         area_lights: list[AreaLight] = cast("list[AreaLight]", light_by_type_mapping.get(AreaLight, []))
 
         self.framebuffer.use()
-        gbuffer.smooth_normal_texture.use(location=0)
+        gbuffer.normal_texture.use(location=0)
         gbuffer.depth_texture.use(location=1)
         gbuffer.linear_depth.use(location=2)
         occluder.occluder_texture.use(location=3)
@@ -543,7 +545,7 @@ class VoxelDirectLighting:
         self.voxel_direct_sun["sunDirection"].write(sun.direction)
         self.voxel_direct_sun["lightColor"].write(sun.color)
         self.voxel_direct_sun["lightRadius"] = sun.radius
-        gbuffer.smooth_normal_texture.use(location=0)
+        gbuffer.normal_texture.use(location=0)
         gbuffer.depth_texture.use(location=1)
         gbuffer.linear_depth.use(location=2)
         occluder.occluder_texture.use(location=3)
@@ -572,22 +574,26 @@ class VoxelSpecularLighting:
 
         self.quad_fs = geometry.quad_fs(normals=False, uvs=True)
 
-    def render(
+    def render(  # noqa: PLR0913
         self,
         camera: Camera,
         gbuffer: GBuffer,
+        suns: Sequence[Sun],
         occluder: GlobalOccluder,
         color_texture: Texture,
         frame_counter: int,
     ) -> None:
+        sun_direction = suns[0].direction if suns and suns[0].visible else glm.vec3(-1)
+
         self.framebuffer.use()
 
         self.voxel_specular_lighting["occluder_translation"].write(glm.ivec3(occluder.occluder_volume.translation))
         self.voxel_specular_lighting["uInvProjection"].write(glm.inverse(camera.projection.matrix))
         self.voxel_specular_lighting["uInvView"].write(glm.inverse(camera.matrix))
         self.voxel_specular_lighting["u_projection_view"].write(camera.projection.matrix @ camera.matrix)
+        self.voxel_specular_lighting["sun_direction"].write(sun_direction)
         self.voxel_specular_lighting["frame_counter"] = frame_counter
-        gbuffer.smooth_normal_texture.use(location=0)
+        gbuffer.normal_texture.use(location=0)
         gbuffer.depth_texture.use(location=1)
         gbuffer.linear_depth.use(location=2)
         gbuffer.material_texture.use(location=3)

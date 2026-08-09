@@ -5,17 +5,19 @@ import moderngl_window
 
 from .main import VoxoWindow
 from .model import VoxLight, VoxModel, parse_xml_level
+from .model.level_parser import VoxWater
 from .objects import World
 
 
 def convert_td_to_level(input_level: Path, output_level: Path | None = None) -> None:
-    print("Converting level", input_level, "to", output_level)  # noqa: T201
     if output_level is None:
         output_level = input_level.parent.parent / input_level.parent.with_suffix(".lvl").name
+    print("Converting level", input_level, "to", output_level)  # noqa: T201
     vox_objects = list(parse_xml_level(input_level))
     vox_models = [obj for obj in vox_objects if type(obj) is VoxModel]
     vox_lights = [obj for obj in vox_objects if type(obj) is VoxLight]
-    World.from_vox_objects(vox_models, vox_lights).write(output_level)
+    vox_waters = [obj for obj in vox_objects if type(obj) is VoxWater]
+    World.from_vox_objects(vox_models, vox_lights, vox_waters).write(output_level)
 
 
 if __name__ == "__main__":

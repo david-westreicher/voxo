@@ -19,7 +19,7 @@ from .constants import (
     SCREEN_DIMENSIONS,
 )
 from .debug import DebugView
-from .rendering import GBufferPingPong, PostProcessing, WireFrameRenderer
+from .rendering import GBufferPingPong, PostProcessing, WaterRenderer, WireFrameRenderer
 from .scene import Scene
 from .voxel_rendering import GlobalOccluder, VoxelLighting, VoxelRenderer
 
@@ -98,6 +98,7 @@ class VoxoWindow(CameraWindow):
         self.gbuffer = GBufferPingPong(self, SCREEN_DIMENSIONS)
         self.voxel_lighting = VoxelLighting(self, SCREEN_DIMENSIONS)
         self.wireframe_box = WireFrameRenderer(self)
+        self.water_renderer = WaterRenderer(self, SCREEN_DIMENSIONS)
         self.post_processing = PostProcessing(self, SCREEN_DIMENSIONS)
 
         self.scene = Scene(self.ctx)
@@ -109,6 +110,7 @@ class VoxoWindow(CameraWindow):
                 *self.gbuffer.textures,
                 *self.voxel_lighting.textures,
                 *self.post_processing.textures,
+                *self.water_renderer.textures,
                 self.scene.world.texture_information.material_texture,
                 self.scene.world.texture_information.palette_texture,
             ],
@@ -117,6 +119,7 @@ class VoxoWindow(CameraWindow):
                 *self.voxel_lighting.shaders,
                 *self.post_processing.shaders,
                 *self.voxel_renderer.shaders,
+                *self.water_renderer.shaders,
             ],
         )
 
@@ -203,7 +206,18 @@ class VoxoWindow(CameraWindow):
                 obj.last_frame_transform = obj.transform
 
         with self.profile("smooth normals"):
+            # TODO(david): Currently unused because water renders into normal buffer
             gbuffer.smooth_normals(self.synced_camera)
+
+        with self.profile("water"):
+            self.water_renderer.copy_albedo(self.gbuffer.current)
+            gbuffer.framebuffer.use()
+            self.water_renderer.render(
+                self.synced_camera,
+                self.gbuffer.current,
+                self.scene.waters,
+                self.frame_counter,
+            )
 
         # Compute lighting
         with self.profile("ambient"):
@@ -238,6 +252,7 @@ class VoxoWindow(CameraWindow):
                 self.gbuffer.current,
                 self.gbuffer.last,
                 self.global_occluder,
+                self.scene.suns,
                 self.frame_counter,
                 camera_moved=self.last_frame_projview
                 != (self.synced_camera.projection.matrix @ self.synced_camera.matrix),
@@ -258,7 +273,14 @@ class VoxoWindow(CameraWindow):
         if self.debug:
             self.global_occluder.render_debug(self.synced_camera)
             self.wireframe_box.render(self.synced_camera, self.scene.voxel_objects)
-            self.wireframe_box.render(self.synced_camera, [self.global_occluder.occluder_volume, *self.scene.lights])
+            self.wireframe_box.render(
+                self.synced_camera,
+                [
+                    self.global_occluder.occluder_volume,
+                    *self.scene.lights,
+                    *self.scene.waters,
+                ],
+            )
         if not self.camera_enabled:
             self.debugger.render_debug(self.global_frame_counter, frametime)
         self.gbuffer.swap()

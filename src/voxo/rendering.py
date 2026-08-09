@@ -9,7 +9,7 @@ from moderngl_window.scene import Camera
 from pyglm import glm
 
 from .constants import GLOBAL_DEFINE, GLOBAL_OCCLUDER_DIMENSIONS
-from .objects import Light, Object, Sun, VoxelObject
+from .objects import Light, Object, Sun, VoxelObject, Water
 
 
 class GBuffer:
@@ -54,6 +54,8 @@ class GBuffer:
         # Clear depth and linear depth buffers
         self.framebuffer.color_mask = [(val,) * 4 for val in [False, False, True, False, False]]
         self.framebuffer.clear(red=max(GLOBAL_OCCLUDER_DIMENSIONS) * 10.0, depth=1.0)
+        self.framebuffer.color_mask = [(val,) * 4 for val in [True, False, False, False, False]]
+        self.framebuffer.clear(red=0.0, green=0.0, blue=0.0)
 
         ctx = self.framebuffer.ctx
         ctx.enable_only(moderngl.DEPTH_TEST)
@@ -342,14 +344,69 @@ class Blur:
         return [self.blur_vert, self.blur_horiz]
 
 
+class WaterRenderer:
+    def __init__(self, window: moderngl_window.WindowConfig, size: tuple[int, int]) -> None:  # type: ignore[name-defined]
+        self.water_normal_1 = window.load_texture_2d("assets/water_01_normal.jpg")
+        self.water_normal_1.label = "texture2d_water_01_normal"
+        self.water_normal_2 = window.load_texture_2d("assets/water_02_normal.jpg")
+        self.water_normal_2.label = "texture2d_water_02_normal"
+        self.albedo_copy = window.ctx.texture(size, components=3, dtype="f2")
+        self.albedo_copy.label = "texture2d_albedo_copy"
+        self.albedo_copy.repeat_x = False
+        self.albedo_copy.repeat_y = False
+        self.framebuffer = window.ctx.framebuffer(color_attachments=[self.albedo_copy])
+        self.framebuffer.label = "framebuffer_water_albedo_copy"
+
+        self.prog = window.load_program("programs/water.glsl", defines=GLOBAL_DEFINE)
+        self.prog.label = "prog_water"
+        self.copy_program = window.load_program("programs/copy.glsl", defines=GLOBAL_DEFINE)
+        self.copy_program.label = "prog_copy"
+        self.quad = geometry.quad_fs(normals=False, uvs=True)
+
+    def copy_albedo(self, gbuffer: GBuffer) -> None:
+        self.framebuffer.use()
+        gbuffer.albedo_texture.use(location=0)
+        self.quad.render(self.copy_program)
+
+    def render(self, camera: Camera, gbuffer: GBuffer, waters: list[Water], frame_counter: int) -> None:
+        ctx = self.prog.ctx
+
+        ctx.enable_only(moderngl.DEPTH_TEST)
+        self.prog["m_proj"].write(camera.projection.matrix)
+        self.prog["m_camera"].write(camera.matrix)
+        self.prog["u_camera_pos"].write(camera.position)
+        self.prog["u_frame_counter"] = frame_counter
+
+        gbuffer.linear_depth.use(location=0)
+        self.albedo_copy.use(location=1)
+        self.water_normal_1.use(location=2)
+        self.water_normal_2.use(location=3)
+        for water in waters:
+            if not water.visible:
+                continue
+            self.prog["m_model"].write(water.transform)
+            self.prog["u_color"].write(water.color)
+            assert water.geometry
+            water.geometry.render(self.prog)
+        ctx.disable(moderngl.DEPTH_TEST)
+
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [self.prog]
+
+    @cached_property
+    def textures(self) -> list[Texture]:
+        return [self.water_normal_1, self.water_normal_2]
+
+
 class WireFrameRenderer:
     def __init__(self, window: moderngl_window.WindowConfig) -> None:  # type: ignore[name-defined]
         self.prog = window.load_program("programs/cube_simple.glsl")
-        self.prog.label = "prof_cube_simple"
+        self.prog.label = "prog_cube_simple"
         self.prog["color"].value = 1.0, 1.0, 0.0
         self.cube = geometry.cube(size=(1, 1, 1), center=(0.5, 0.5, 0.5))
 
-    def render(self, camera: Camera, objects: Sequence[Object | Light]) -> None:
+    def render(self, camera: Camera, objects: Sequence[Object | Light | Water]) -> None:
         ctx = self.prog.ctx
         ctx.enable_only(moderngl.CULL_FACE)
         ctx.wireframe = True
