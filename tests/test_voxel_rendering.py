@@ -55,7 +55,7 @@ def test_global_occluder_blit_single_voxel(window_config: WindowConfig, translat
     # arrange
     global_occluder = GlobalOccluder(window_config, dimensions=(5, 5, 5))
     vox_obj = create_cube((1, 1, 1), window_config.ctx)
-    vox_obj.translation = glm.vec3(1, 0, 1) + translation
+    vox_obj.translation = glm.vec3(0, 0, 1) + translation
 
     # act
     global_occluder.blit_object(vox_obj)
@@ -64,7 +64,7 @@ def test_global_occluder_blit_single_voxel(window_config: WindowConfig, translat
     # assert
     resulting_occluder = np.frombuffer(global_occluder.occluder_texture.read(), dtype=np.byte).reshape(5, 5, 5)
     expected_occluder = np.zeros(shape=(5, 5, 5), dtype=np.byte)
-    pos = glm.ivec3(vox_obj.translation - glm.vec3(1, 0, 1))
+    pos = glm.ivec3(vox_obj.translation - glm.vec3(0, 0, 1))
     expected_occluder[pos[2]][pos[1]][pos[0]] = 1
     np.testing.assert_array_equal(resulting_occluder, expected_occluder)
 
@@ -88,7 +88,7 @@ def test_global_occluder_blit_occluder_translation(window_config: WindowConfig, 
     global_occluder = GlobalOccluder(window_config, dimensions=(5, 5, 5))
     global_occluder.occluder_volume.translation = -translation
     vox_obj = create_cube((1, 1, 1), window_config.ctx)
-    vox_obj.translation = glm.vec3(1, 0, 1)
+    vox_obj.translation = glm.vec3(0, 0, 1)
 
     # act
     global_occluder.blit_object(vox_obj)
@@ -106,7 +106,7 @@ def test_global_occluder_blit_single_voxel_on_edge(window_config: WindowConfig):
     # arrange
     global_occluder = GlobalOccluder(window_config, dimensions=(5, 5, 5))
     vox_obj = create_cube((1, 1, 1), window_config.ctx)
-    vox_obj.translation = glm.vec3(0.501, 0, 0.501)
+    vox_obj.translation = glm.vec3(0.001, 0, 0.501)
 
     # act
     global_occluder.blit_object(vox_obj)
@@ -123,7 +123,7 @@ def test_global_occluder_blit_single_voxel_on_edge_fails(window_config: WindowCo
     # arrange
     global_occluder = GlobalOccluder(window_config, dimensions=(5, 5, 5))
     vox_obj = create_cube((1, 1, 1), window_config.ctx)
-    vox_obj.translation = glm.vec3(0.5, 0, 0.5)
+    vox_obj.translation = glm.vec3(0.0, 0, 0.5)
 
     # act
     global_occluder.blit_object(vox_obj)
@@ -319,7 +319,7 @@ def test_global_occluder_blit_ignore_glass(window_config: WindowConfig):
         model=model.simplify(palette_row=0, material_row=0),
     )
     vox_obj.upload_to_gpu(window_config.ctx)
-    vox_obj.translation = glm.vec3(1, 0, 1)
+    vox_obj.translation = glm.vec3(0, 0, 1)
     vox_obj.texture_information, _, _ = TextureInformation.from_models([model])
     vox_obj.texture_information.upload_to_gpu(window_config.ctx)
 

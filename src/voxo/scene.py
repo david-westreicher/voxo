@@ -104,7 +104,7 @@ class Scene:
 @cache
 def global_skybox(window: WindowConfig) -> Texture:
     def remove_sun(image: np.ndarray) -> np.ndarray:
-        return np.array(np.minimum(image, 10000.0))
+        return np.array(np.minimum(image, 200.0))
 
     assert window.resource_dir
     sky_texture = hdr_texture(

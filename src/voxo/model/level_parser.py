@@ -18,6 +18,14 @@ def parse_vec3(pos_attribute: dict[str, str], field: str) -> glm.vec3:
     return glm.vec3(pos)
 
 
+def parse_rot3(pos_attribute: dict[str, str], field: str) -> glm.quat:
+    rot_vec = parse_vec3(pos_attribute, field=field)
+    qx = glm.angleAxis(glm.radians(rot_vec.x), glm.vec3(1, 0, 0))
+    qy = glm.angleAxis(glm.radians(rot_vec.y), glm.vec3(0, 1, 0))
+    qz = glm.angleAxis(glm.radians(rot_vec.z), glm.vec3(0, 0, 1))
+    return qy @ qz @ qx
+
+
 @dataclass
 class VoxLight:
     name: str
@@ -48,7 +56,7 @@ def parse_light(xml_light: ET.Element, parent_shape_name: str) -> Iterator[VoxLi
         name=parent_shape_name,
         light_type=xml_light.attrib.get("type", "sphere"),
         translation=parse_vec3(xml_light.attrib, field="pos") * 10.0 - glm.vec3(1.0, 0.0, 0.0),
-        rotation=glm.quat(glm.radians(parse_vec3(xml_light.attrib, field="rot"))),
+        rotation=parse_rot3(xml_light.attrib, field="rot"),
         color=parse_vec3(xml_light.attrib, field="color"),
         reach=float(xml_light.attrib.get("reach", 0.0)),
         unshadowed=float(xml_light.attrib.get("unshadowed", 0.0)),
@@ -70,7 +78,7 @@ def parse_vox_object(
     level_xml: Path,
 ) -> Iterator[VoxModel | VoxLight]:
     pos = parse_vec3(xml_vox.attrib, field="pos") * 10.0
-    rot = glm.quat(glm.radians(parse_vec3(xml_vox.attrib, field="rot")))
+    rot = parse_rot3(xml_vox.attrib, field="rot")
     file = xml_vox.attrib["file"]
     shape = xml_vox.attrib["object"]
     if file not in vox_file_map:
@@ -100,7 +108,7 @@ def parse_compound(
     level_xml: Path,
 ) -> Iterator[VoxModel | VoxLight]:
     compound_pos = parse_vec3(xml_compound.attrib, field="pos") * 10.0
-    compound_rot = glm.quat(glm.radians(parse_vec3(xml_compound.attrib, field="rot")))
+    compound_rot = parse_rot3(xml_compound.attrib, field="rot")
     for xml_vox in xml_compound.findall("vox"):
         for vox_obj in parse_vox_object(xml_vox, vox_file_map, level_xml):
             vox_obj.rotation *= compound_rot
@@ -129,7 +137,7 @@ def parse_props(
 ) -> Iterator[VoxModel | VoxLight]:
     for xml_body in xml_props.findall("body"):
         body_pos = parse_vec3(xml_body.attrib, field="pos") * 10.0
-        body_rot = glm.quat(glm.radians(parse_vec3(xml_body.attrib, field="rot")))
+        body_rot = parse_rot3(xml_body.attrib, field="rot")
         for xml_vox in xml_body.findall(".//vox"):
             for vox_obj in parse_vox_object(xml_vox, vox_file_map, level_xml):
                 vox_obj.rotation = body_rot * vox_obj.rotation
@@ -143,7 +151,7 @@ def parse_wheel(
     level_xml: Path,
 ) -> Iterator[VoxModel | VoxLight]:
     wheel_pos = parse_vec3(xml_wheel.attrib, field="pos") * 10.0
-    wheel_rot = glm.quat(glm.radians(parse_vec3(xml_wheel.attrib, field="rot")))
+    wheel_rot = parse_rot3(xml_wheel.attrib, field="rot")
     for xml_vox in xml_wheel.findall("vox"):
         for vox_obj in parse_vox_object(xml_vox, vox_file_map, level_xml):
             vox_obj.rotation = wheel_rot * vox_obj.rotation
@@ -157,7 +165,7 @@ def parse_body(
     level_xml: Path,
 ) -> Iterator[VoxModel | VoxLight]:
     body_pos = parse_vec3(xml_body.attrib, field="pos") * 10.0
-    body_rot = glm.quat(glm.radians(parse_vec3(xml_body.attrib, field="rot")))
+    body_rot = parse_rot3(xml_body.attrib, field="rot")
     for xml_vox in xml_body.findall("vox"):
         for vox_obj in parse_vox_object(xml_vox, vox_file_map, level_xml):
             vox_obj.rotation = body_rot * vox_obj.rotation
@@ -177,7 +185,7 @@ def parse_vehicles(
 ) -> Iterator[VoxModel | VoxLight]:
     for xml_vehicle in xml_props.findall("vehicle"):
         vehicle_pos = parse_vec3(xml_vehicle.attrib, field="pos") * 10.0
-        vehicle_rot = glm.quat(glm.radians(parse_vec3(xml_vehicle.attrib, field="rot")))
+        vehicle_rot = parse_rot3(xml_vehicle.attrib, field="rot")
         for xml_body in xml_vehicle.findall("body"):
             for vox_obj in parse_body(xml_body, vox_file_map, level_xml):
                 vox_obj.rotation = vehicle_rot * vox_obj.rotation
@@ -188,7 +196,7 @@ def parse_vehicles(
 def parse_waters(xml_props: ET.Element) -> Iterator[VoxWater]:
     for xml_water in xml_props.findall("water"):
         water_pos = parse_vec3(xml_water.attrib, field="pos") * 10.0
-        water_rot = glm.quat(glm.radians(parse_vec3(xml_water.attrib, field="rot")))
+        water_rot = parse_rot3(xml_water.attrib, field="rot")
         water_col = parse_vec3(xml_water.attrib, field="color")
         vertices = []
         for xml_vertex in xml_water.findall("vertex"):

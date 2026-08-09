@@ -66,8 +66,11 @@ vec3 sample_screen_space(vec3 pos, sampler2D tex) {
     if (reprojection_error > 4.0) {
         return vec3(0.0);
     }
-    // TODO(david): fade in if screen edge
-    return screen_space_color;
+
+    vec2 edge_dist = min(uv, 1.0 - uv);
+    float edge_fade = min(edge_dist.x, edge_dist.y);
+    edge_fade = smoothstep(0.0, 0.1, edge_fade);
+    return mix(vec3(0.0), screen_space_color, edge_fade);
 }
 
 vec3 compute_specular_lighting(vec3 pos, vec3 normal, float roughness) {
