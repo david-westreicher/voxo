@@ -24,6 +24,7 @@ uniform mat4 uInvView;
 uniform mat4 uInvProjection;
 uniform int frame_counter;
 uniform ivec3 occluder_translation;
+uniform vec3 sun_direction;
 
 layout(binding = 0) uniform sampler2D u_normal;
 layout(binding = 1) uniform sampler2D u_depth;
@@ -38,7 +39,7 @@ layout(location = 1) out float out_reflectivity;
 
 const int MAX_SPECULAR_SAMPLES = 1;
 const int MAX_SPECULAR_DISTANCE = 400;
-const float MAX_SCREEN_SPACE_REFLECTION_DISTANCE = 30.0;
+const float MAX_SCREEN_SPACE_REFLECTION_DISTANCE = 400.0;
 
 uint rnd_seed = uint(gl_FragCoord.x) + uint(gl_FragCoord.y) * 4097U + uint(frame_counter);
 int normal_rand_state = int(rnd_seed) % 64;
@@ -59,8 +60,12 @@ vec3 sample_screen_space(vec3 pos, sampler2D tex) {
     float screen_depth = texture(u_linear_depth, uv).r;
     float cam_distance = distance(camera_pos, pos);
     vec3 screen_space_color = texture(tex, uv).rgb;
-    float reprojection_error = min(distance(screen_depth, cam_distance), 1.0);
-    return mix(screen_space_color, vec3(0.0), reprojection_error);
+    float reprojection_error = distance(screen_depth, cam_distance);
+    if (reprojection_error > 4.0) {
+        return vec3(0.0);
+    }
+    // TODO(david): fade in if screen edge
+    return screen_space_color;
 }
 
 vec3 compute_specular_lighting(vec3 pos, vec3 normal, float roughness) {
@@ -76,12 +81,13 @@ vec3 compute_specular_lighting(vec3 pos, vec3 normal, float roughness) {
         occ_ray.origin -= occluder_translation;
         Hit occ_hit = sparse_raymarch(occ_ray, MAX_SPECULAR_DISTANCE, u_global_occluder, bbox, 16);
         if (!occ_hit.hit) {
-            // TODO(david): sun should also specular reflect
-            specular += skyColor(occ_ray.direction, vec3(-1.0));
+            specular += skyColor(occ_ray.direction, sun_direction);
         } else {
             vec3 global_hit_position = occ_hit.position + occluder_translation;
-            if (distance(pos, global_hit_position) <= MAX_SCREEN_SPACE_REFLECTION_DISTANCE) {
-                specular += sample_screen_space(global_hit_position, u_diffuse_composite);
+            float reflection_distance = distance(pos, global_hit_position);
+            if (reflection_distance <= MAX_SCREEN_SPACE_REFLECTION_DISTANCE) {
+                vec3 screen_space_color = sample_screen_space(global_hit_position, u_diffuse_composite);
+                specular += mix(screen_space_color, vec3(0.0), reflection_distance / MAX_SCREEN_SPACE_REFLECTION_DISTANCE);
             }
         }
     }

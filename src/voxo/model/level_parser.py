@@ -35,6 +35,14 @@ class VoxLight:
     size: glm.vec2 = field(default_factory=lambda: glm.vec2(0))
 
 
+@dataclass
+class VoxWater:
+    translation: glm.vec3 = field(default_factory=lambda: glm.vec3(0))
+    rotation: glm.quat = field(default_factory=glm.quat)
+    color: glm.vec3 = field(default_factory=lambda: glm.vec3(0))
+    vertices: list[glm.vec2] = field(default_factory=list)
+
+
 def parse_light(xml_light: ET.Element, parent_shape_name: str) -> Iterator[VoxLight]:
     light = VoxLight(
         name=parent_shape_name,
@@ -177,7 +185,18 @@ def parse_vehicles(
                 yield vox_obj
 
 
-def parse_xml_level(level_xml: Path) -> Iterator[VoxModel | VoxLight]:
+def parse_waters(xml_props: ET.Element) -> Iterator[VoxWater]:
+    for xml_water in xml_props.findall("water"):
+        water_pos = parse_vec3(xml_water.attrib, field="pos") * 10.0
+        water_rot = glm.quat(glm.radians(parse_vec3(xml_water.attrib, field="rot")))
+        water_col = parse_vec3(xml_water.attrib, field="color")
+        vertices = []
+        for xml_vertex in xml_water.findall("vertex"):
+            vertices.append(parse_vec2(xml_vertex.attrib, field="pos") * 10.0)  # noqa: PERF401
+        yield VoxWater(translation=water_pos, rotation=water_rot, color=water_col, vertices=vertices)
+
+
+def parse_xml_level(level_xml: Path) -> Iterator[VoxModel | VoxLight | VoxWater]:
     tree = ET.parse(level_xml)  # noqa: S314
     root = tree.getroot()
     vox_file_map: dict[str, SimplifiedVoxFile] = {}
@@ -193,3 +212,7 @@ def parse_xml_level(level_xml: Path) -> Iterator[VoxModel | VoxLight]:
     vehicles = root.find(".//group[@name='Vehicles']")
     if vehicles:
         yield from parse_vehicles(vehicles, vox_file_map, level_xml)
+
+    waters = root.find(".//group[@name='Water']")
+    if waters:
+        yield from parse_waters(waters)

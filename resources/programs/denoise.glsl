@@ -94,13 +94,12 @@ vec3 spiral_sampling(vec2 uv, Plane plane, vec3 current_normal, vec3 current_col
 void main() {
     float current_depth = texture(tex_current_depth, uv).r;
     vec3 current_color = texture(tex_current, uv).rgb;
-    if (current_depth > CAMERA_FAR) {
+    vec2 motion_vector = texture(tex_motion_vectors, uv).rg;
+    if (current_depth > CAMERA_FAR || motion_vector.x == -2.0) {
         clean_color = current_color;
         return;
     }
     float depth_below = texture(tex_current_depth, uv + vec2(0, -texel_size.y)).r;
-    vec2 uv_motion = uv;
-    vec2 motion_vector = texture(tex_motion_vectors, uv_motion).rg;
     vec2 old_uv = uv + motion_vector;
     vec3 current_normal = texture(tex_current_normals, uv).rgb;
     Ray ray = compute_camera_ray(uv, u_inv_projection, u_inv_view, 0, 0.0);

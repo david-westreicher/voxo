@@ -13,7 +13,7 @@ from pyglm.glm import quat as Quat  # noqa: N812
 
 from .constants import LIGHT_TYPE_NUM_AREA, LIGHT_TYPE_NUM_CONE, LIGHT_TYPE_NUM_SPHERE, USE_VOXEL_OBJECT_INSTANCING
 from .model import Model, SimplifiedModel
-from .model.level_parser import VoxLight
+from .model.level_parser import VoxLight, VoxWater
 from .model.vox_parser import VoxModel
 from .utils import Sphere, cone, hemisphere
 
@@ -64,7 +64,6 @@ class Light(Object):
     intensity: float = 1.0
     reach: float = 1.0
     unshadowed: float = 0.0
-    visible: bool = True
 
     def upload_to_gpu(self) -> None: ...
 
@@ -458,6 +457,48 @@ class VoxelObject(Object):
         )
 
 
+@dataclass(kw_only=True)
+class Water(Object):
+    color: glm.vec3 = field(default_factory=lambda: glm.vec3(1.0))
+    vertices: list[glm.vec2] = field(default_factory=list)
+
+    def upload_to_gpu(self) -> None:
+        vao = VAO(self.name, mode=moderngl.TRIANGLE_FAN)
+        # NOTE(david): counter z-fighting by moving down
+        vertices_data = b"".join(glm.vec3(vert.x, -0.01, vert.y).to_bytes() for vert in self.vertices)
+        vao.buffer(vertices_data, buffer_format="3f", attribute_names=["in_position"])
+        self.geometry = vao
+
+    @staticmethod
+    def from_vox_water(vox_water: VoxWater) -> "Water":
+        return Water(
+            color=vox_water.color,
+            vertices=vox_water.vertices,
+            translation=vox_water.translation,
+            rotation=vox_water.rotation,
+        )
+
+    def write(self, f: BinaryIO) -> None:
+        super().write(f)
+        f.write(self.color.to_bytes())
+        f.write(struct.pack("<I", len(self.vertices)))
+        f.writelines(vert.to_bytes() for vert in self.vertices)
+
+    @staticmethod
+    def from_file(f: BinaryIO) -> "Water":
+        obj = Object.from_file(f)
+        color = glm.vec3.from_bytes(f.read(12))
+        vertices_num, *_ = struct.unpack("<I", f.read(4))
+        vertices = [glm.vec2.from_bytes(f.read(8)) for _ in range(vertices_num)]
+        return Water(
+            name=obj.name,
+            translation=obj.translation,
+            rotation=obj.rotation,
+            color=color,
+            vertices=vertices,
+        )
+
+
 def generate_palette_texture(palettes: list[bytes]) -> tuple[bytes, dict[bytes, int], list[int]]:
     unique_palette_data = sorted(set(palettes))
     palette_row_mapping = {e: i for i, e in enumerate(unique_palette_data)}
@@ -490,10 +531,11 @@ class World:
     def __init__(self) -> None:
         self.voxel_objects: list[VoxelObject] = []
         self.lights: list[Light] = []
+        self.waters: list[Water] = []
         self.texture_information = TextureInformation()
 
     @staticmethod
-    def from_vox_objects(vox_models: list[VoxModel], vox_lights: list[VoxLight]) -> "World":
+    def from_vox_objects(vox_models: list[VoxModel], vox_lights: list[VoxLight], vox_waters: list[VoxWater]) -> "World":
         world = World()
         models = [vox_model.to_model() for vox_model in vox_models]
         world.texture_information, palette_row_mapping, material_row_mapping = TextureInformation.from_models(models)
@@ -512,6 +554,7 @@ class World:
         # TODO(david): support capsule lights
         supported_lights = [vox_light for vox_light in vox_lights if vox_light.light_type in ["sphere", "cone", "area"]]
         world.lights = [Light.from_vox_light(vox_light) for vox_light in supported_lights]
+        world.waters = [Water.from_vox_water(vox_water) for vox_water in vox_waters]
         return world
 
     @staticmethod
@@ -528,6 +571,10 @@ class World:
             for _ in range(obj_num):
                 world.lights.append(Light.from_file(f))
 
+            obj_num, *_ = struct.unpack("<I", f.read(4))
+            for _ in range(obj_num):
+                world.waters.append(Water.from_file(f))
+
             assert f.read(1) == b""  # EOF
         return world
 
@@ -542,3 +589,7 @@ class World:
             f.write(struct.pack("<I", len(self.lights)))
             for vox_light in self.lights:
                 vox_light.write(f)
+
+            f.write(struct.pack("<I", len(self.waters)))
+            for vox_water in self.waters:
+                vox_water.write(f)

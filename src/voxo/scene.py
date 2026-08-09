@@ -6,7 +6,7 @@ from moderngl import Context
 from moderngl_window.scene.camera import Camera
 from pyglm import glm
 
-from .objects import Light, Sun, VoxelObject, World
+from .objects import Light, Sun, VoxelObject, Water, World
 from .utils import chunk_iters, frustum_cull_spheres
 
 
@@ -14,13 +14,26 @@ class Scene:
     def __init__(self, ctx: Context) -> None:
         self.voxel_objects: list[VoxelObject] = []
         self.lights: list[Light] = []
+        self.waters: list[Water] = []
         self.last_frame_transforms: list[glm.mat4x4] = []
         self.ctx = ctx
 
         self.sun = Sun()
         self.world = World.from_file(Path("./resources/levels/test.lvl"))
+        # self.world = World.from_file(Path("./resources/levels/carib_sandbox.lvl"))  # noqa: ERA001
+        # self.world = World.from_file(Path("./resources/levels/caveisland_sandbox.lvl"))  # noqa: ERA001
+        # self.world = World.from_file(Path("./resources/levels/ch_factory_fetch.lvl"))  # noqa: ERA001
+        # self.world = World.from_file(Path("./resources/levels/ch_lee_fetch.lvl"))  # noqa: ERA001
+        # self.world = World.from_file(Path("./resources/levels/ch_mall_fetch.lvl"))  # noqa: ERA001
+        # self.world = World.from_file(Path("./resources/levels/cullington_sandbox.lvl"))  # noqa: ERA001
+        # self.world = World.from_file(Path("./resources/levels/frustrum_sandbox.lvl"))  # noqa: ERA001
+        # self.world = World.from_file(Path("./resources/levels/hub_carib_sandbox.lvl"))  # noqa: ERA001
+        # self.world = World.from_file(Path("./resources/levels/mansion_sandbox.lvl"))  # noqa: ERA001
+        # self.world = World.from_file(Path("./resources/levels/marina_sandbox.lvl"))  # noqa: ERA001
         for light in self.world.lights:
             self.add_light(light)
+        for water in self.world.waters:
+            self.add_water(water)
         self.world.texture_information.upload_to_gpu(ctx)
         self.object_generator = chunk_iters(self.world.voxel_objects, 4000)
 
@@ -33,6 +46,11 @@ class Scene:
         self.lights.append(light)
         light.upload_to_gpu()
         return light
+
+    def add_water(self, water: Water) -> Water:
+        self.waters.append(water)
+        water.upload_to_gpu()
+        return water
 
     @cached_property
     def suns(self) -> Sequence[Sun]:
