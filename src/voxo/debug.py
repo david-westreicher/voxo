@@ -320,7 +320,9 @@ class ObjectsViewer:
                 )
                 if imgui.collapsing_header(f"Voxos ({len(objects)})"):
                     for obj in objects:
-                        clicked, _ = imgui.selectable(obj.name, self.selected_object_id == obj.global_id)
+                        clicked, _ = imgui.selectable(
+                            f"{obj.name} - {obj.global_id}", self.selected_object_id == obj.global_id
+                        )
                         if clicked:
                             self.selected_object_id = obj.global_id
                 lights = sorted(

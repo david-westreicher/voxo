@@ -9,8 +9,6 @@ from moderngl_window.scene import Camera
 from moderngl_window.scene.camera import KeyboardCamera
 from pyglm import glm
 
-from voxo.objects import VoxelObjectGPUBuffer
-
 from .constants import (
     ASPECT_RATIO,
     CAMERA_FAR,
@@ -21,6 +19,7 @@ from .constants import (
     SCREEN_DIMENSIONS,
 )
 from .debug import DebugView
+from .objects import VoxelObjectGPUBuffer
 from .rendering import GBufferPingPong, PostProcessing, WaterRenderer, WireFrameRenderer
 from .scene import Scene, global_skybox
 from .utils import Timer

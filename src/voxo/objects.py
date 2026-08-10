@@ -1,4 +1,5 @@
 import struct
+from array import array
 from collections import deque
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -568,8 +569,7 @@ class VoxelObjectGPUBuffer:
             )
 
     def update_visibility_buffer(self, visible_objects: list[VoxelObject]) -> None:
-        visible_slot_ids = b"".join(struct.pack("<I", self.slot_mapping[obj.global_id]) for obj in visible_objects)
-        # TODO(david): can be replaced by array.array("i")
+        visible_slot_ids = array("I", (self.slot_mapping[obj.global_id] for obj in visible_objects)).tobytes()
         self.visibility_buffer.write(visible_slot_ids, offset=0)
 
     @staticmethod
