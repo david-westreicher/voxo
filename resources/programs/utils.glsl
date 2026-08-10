@@ -38,6 +38,9 @@ Ray compute_camera_ray(vec2 screen_uv, mat4 uInvProjection, mat4 uInvView, int f
 vec3 sky_color(sampler2D skybox, vec3 direction, vec3 sun_direction, vec3 sun_color) {
     float u = atan(direction.z, direction.x) / (2.0 * PI) + 0.5;
     float v = asin(clamp(direction.y, -1.0, 1.0)) / PI + 0.5;
+    if (v < 0.5) {
+        return vec3(0, 0, 1);
+    }
 
     vec3 color = texture(skybox, vec2(u, v)).rgb;
     if (sun_direction.y >= 0) {

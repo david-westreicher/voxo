@@ -9,6 +9,8 @@ from moderngl_window.scene import Camera
 from moderngl_window.scene.camera import KeyboardCamera
 from pyglm import glm
 
+from voxo.objects import VoxelObjectGPUBuffer
+
 from .constants import (
     ASPECT_RATIO,
     CAMERA_FAR,
@@ -21,6 +23,7 @@ from .constants import (
 from .debug import DebugView
 from .rendering import GBufferPingPong, PostProcessing, WaterRenderer, WireFrameRenderer
 from .scene import Scene, global_skybox
+from .utils import Timer
 from .voxel_rendering import GlobalOccluder, VoxelLighting, VoxelRenderer
 
 if TYPE_CHECKING:
@@ -87,12 +90,13 @@ class VoxoWindow(CameraWindow):
         self.wnd.mouse_exclusivity = True
         self.time = 0.0
         self.frame_counter = 0
-        self.global_frame_counter = 0
+        self.global_timer = Timer.global_timer()
         self.debug = False
         self.synced_camera = Camera(fov=CAMERA_FOV, aspect_ratio=ASPECT_RATIO, near=CAMERA_NEAR, far=CAMERA_FAR)
         self.camera.position = glm.vec3(CENTER) + glm.vec3(0, 100, 0)
 
         self.last_frame_projview: Mat4 = cast("Mat4", self.camera.projection.matrix @ self.camera.matrix)
+        self.voxel_object_gpu_buffer = VoxelObjectGPUBuffer(self.ctx)
         self.global_occluder = GlobalOccluder(self, GLOBAL_OCCLUDER_DIMENSIONS, center=True)
         self.voxel_renderer = VoxelRenderer(self)
         self.gbuffer = GBufferPingPong(self, SCREEN_DIMENSIONS)
@@ -171,21 +175,20 @@ class VoxoWindow(CameraWindow):
     def on_render(self, time: float, frametime: float) -> None:
         self.sync_camera(self.camera)
         self.time = time
-        self.global_frame_counter += 1
         self.frame_counter += 0 if self.debugger.is_frame_counter_stopped else 1
 
+        if self.timer.is_running or not self.camera_enabled:
+            self.scene.update(time)
+
+        # Update Occluder
         occluder_was_updated = False
         with self.profile("update occluder"):
-            if self.timer.is_running or not self.camera_enabled:
-                self.scene.update(time)
+            for voxel_object in self.scene.voxel_objects:
+                if voxel_object.visible and voxel_object.last_frame_update >= self.global_timer.time:
+                    # TODO(david): clear dirty objects
+                    self.global_occluder.blit_object(voxel_object)
+                    occluder_was_updated = True
 
-                # Update Occluder
-                for voxel_object in self.scene.voxel_objects:
-                    if voxel_object.visible and voxel_object.is_dirty:
-                        # TODO(david): clear dirty objects
-                        self.global_occluder.blit_object(voxel_object)
-                        voxel_object.is_dirty = False
-                        occluder_was_updated = True
         with self.profile("occluder mipmaps"):
             if occluder_was_updated:
                 self.global_occluder.update_mipmaps()
@@ -193,9 +196,11 @@ class VoxoWindow(CameraWindow):
         # Fill GBuffer
         with self.profile("fill gbuffer"):
             visible_objects = self.scene.visible_objects(self.synced_camera)
+            self.voxel_object_gpu_buffer.update_gpu_buffers(self.scene.voxel_objects, self.global_timer.time)
             gbuffer = self.gbuffer.current
             gbuffer.start()
             self.voxel_renderer.render_objects(
+                self.voxel_object_gpu_buffer,
                 visible_objects,
                 self.synced_camera,
                 self.last_frame_projview,
@@ -203,7 +208,7 @@ class VoxoWindow(CameraWindow):
                 self.frame_counter,
             )
             for obj in self.scene.voxel_objects:
-                obj.last_frame_transform = obj.transform
+                obj.last_frame_transform = glm.mat4x4(obj.transform)
 
         with self.profile("smooth normals"):
             # TODO(david): Currently unused because water renders into normal buffer
@@ -282,6 +287,7 @@ class VoxoWindow(CameraWindow):
                 ],
             )
         if not self.camera_enabled:
-            self.debugger.render_debug(self.global_frame_counter, frametime)
+            self.debugger.render_debug(frametime)
         self.gbuffer.swap()
         self.last_frame_projview = cast("Mat4", self.synced_camera.projection.matrix @ self.synced_camera.matrix)
+        self.global_timer.tick()

@@ -1,4 +1,3 @@
-import struct
 from collections.abc import Sequence
 from functools import cached_property
 from itertools import groupby
@@ -22,7 +21,7 @@ from .constants import (
     USE_VOXEL_OBJECT_INSTANCING,
     VOXEL_OBJECT_COUNT_PER_BATCH,
 )
-from .objects import AreaLight, ConeLight, Light, Object, SphereLight, Sun, VoxelObject
+from .objects import AreaLight, ConeLight, Light, Object, SphereLight, Sun, VoxelObject, VoxelObjectGPUBuffer
 from .rendering import Denoiser, GBuffer
 from .utils import chunk_iters
 
@@ -142,8 +141,9 @@ class VoxelRenderer:
         self.object_voxel_texture_handle_buffer = window.ctx.buffer(reserve=(8 * 3) * MAX_VOXEL_OBJECTS, dynamic=True)
         self.cube = geometry.cube((1, 1, 1), (0.5, 0.5, 0.5))
 
-    def render_objects(
+    def render_objects(  # noqa: PLR0913
         self,
+        voxel_object_gpu_buffer: VoxelObjectGPUBuffer,
         voxel_objects: list[VoxelObject],
         camera: Camera,
         prev_viewproj: glm.mat4x4,
@@ -172,28 +172,17 @@ class VoxelRenderer:
 
         batched_voxel_objects = chunk_iters(voxel_objects, VOXEL_OBJECT_COUNT_PER_BATCH)
         for b_voxel_objects in batched_voxel_objects:
-            transform_buffer = []
-            for voxel_object in b_voxel_objects:
-                transform_buffer.append(voxel_object.transform.to_bytes())
-                transform_buffer.append(glm.inverse(voxel_object.transform).to_bytes())
-                transform_buffer.append(voxel_object.last_frame_transform.to_bytes())
-                transform_buffer.append(glm.vec4(*voxel_object.model.opengl_dimensions, 1).to_bytes())
-            self.object_transform_buffer.write(b"".join(transform_buffer))
-            self.object_transform_buffer.bind_to_storage_buffer(binding=0)
+            voxel_object_gpu_buffer.update_visibility_buffer(b_voxel_objects)
+            voxel_object_gpu_buffer.visibility_buffer.bind_to_storage_buffer(binding=0)
+            voxel_object_gpu_buffer.object_transform_buffer.bind_to_storage_buffer(binding=1)
             if USE_VOXEL_OBJECT_INSTANCING:
-                texture_handle_buffer = []
-                for voxel_object in b_voxel_objects:
-                    texture_handle_buffer.append(struct.pack("<Q", voxel_object.voxel_texture_handle))
-                    texture_handle_buffer.append(struct.pack("<I", voxel_object.model.palette_row))
-                    texture_handle_buffer.append(struct.pack("<I", voxel_object.model.material_row))
-                self.object_voxel_texture_handle_buffer.write(b"".join(texture_handle_buffer))
-                self.object_voxel_texture_handle_buffer.bind_to_storage_buffer(binding=1)
+                voxel_object_gpu_buffer.object_texture_buffer.bind_to_storage_buffer(binding=2)
                 self.cube.render(self.program, instances=len(b_voxel_objects))
             else:
-                for i, voxel_object in enumerate(b_voxel_objects):
+                for voxel_object in b_voxel_objects:
                     assert voxel_object.visible
                     voxel_object.voxel_texture.use(location=0)
-                    self.program["u_instanceID"] = i
+                    self.program["u_instanceID"] = voxel_object_gpu_buffer.slot_mapping[voxel_object.global_id]
                     self.program["u_palette_row"] = voxel_object.model.palette_row
                     self.program["u_material_row"] = voxel_object.model.material_row
                     self.cube.render(self.program)

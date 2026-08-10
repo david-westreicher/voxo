@@ -1,6 +1,7 @@
 import math
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
+from functools import cache
 from itertools import islice
 from pathlib import Path
 from typing import TypeVar, cast
@@ -221,3 +222,19 @@ def hdr_texture(path: Path, ctx: Context, post_processing: Callable[[np.ndarray]
     image = np.ascontiguousarray(image)
     size = tuple(image.shape[:-1])[::-1]
     return ctx.texture(size, components=image.shape[-1], data=image, dtype="f2")
+
+
+class Timer:
+    def __init__(self) -> None:
+        self.frame_counter = 0
+
+    @property
+    def time(self) -> int:
+        return self.frame_counter
+
+    def tick(self) -> None:
+        self.frame_counter += 1
+
+    @cache  # noqa: B019
+    def global_timer() -> "Timer":
+        return Timer()

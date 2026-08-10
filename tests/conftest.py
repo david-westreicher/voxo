@@ -10,7 +10,7 @@ from moderngl_window.context.base import WindowConfig
 from moderngl_window.context.base.window import BaseWindow
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def window() -> Iterator[BaseWindow]:
     settings.WINDOW["class"] = "moderngl_window.context.headless.Window"
     settings.WINDOW["size"] = (16, 16)
@@ -21,15 +21,16 @@ def window() -> Iterator[BaseWindow]:
     resources.register_dir(Path("./resources").resolve())
     mglw.activate_context(window=window)
     yield window
+    window.ctx.release()
     window.close()
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def ctx(window: BaseWindow) -> Context:  # noqa: ARG001
     return mglw.ctx()
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def window_config(window: BaseWindow, ctx: Context) -> WindowConfig:
     window.config = WindowConfig(ctx=ctx, wnd=window, timer=None)
     assert window.config

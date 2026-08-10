@@ -18,12 +18,13 @@ from pyglm import glm
 from .constants import SCREEN_DIMENSIONS
 from .objects import AreaLight, Light, Object, SphereLight, Sun, VoxelObject, Water
 from .scene import Scene
-from .utils import compute_camera_ray, ray_sphere_intersection
+from .utils import Timer, compute_camera_ray, ray_sphere_intersection
 
 
 class Profiler:
     def __init__(self, ctx: Context) -> None:
         self.query_buffer: dict[tuple[str, int], Query] = defaultdict(lambda: ctx.query(time=True))
+        self.global_timer = Timer.global_timer()
 
     @contextmanager
     def query(self, name: str, frame_counter: int) -> Iterator[None]:
@@ -41,9 +42,9 @@ class Profiler:
         query = self.query_buffer[key]
         return query.elapsed
 
-    def all_timings(self, frame_counter: int, frame_time: float) -> dict[str, int]:
-        names = [name for name, f in self.query_buffer if f == (frame_counter - 3) % 10]
-        timings = {name: self.timing(name, frame_counter) for name in names}
+    def all_timings(self, frame_time: float) -> dict[str, int]:
+        names = [name for name, f in self.query_buffer if f == (self.global_timer.time - 3) % 10]
+        timings = {name: self.timing(name, self.global_timer.time) for name in names}
         timings["frame time"] = int(frame_time * 1_000_000_000)
         return timings
 
@@ -359,7 +360,7 @@ class ObjectsViewer:
 
                     if isinstance(self.selected_object, VoxelObject):
                         if imgui.button("Reblit"):
-                            self.selected_object.is_dirty = True
+                            self.selected_object.last_frame_update = Timer.global_timer().time + 1
                         imgui.separator_text("Dimensions")
                         dim = self.selected_object.model.opengl_dimensions
                         _, _ = imgui.drag_float3("##", list(dim), v_speed=0.0, v_min=-10, v_max=10, format="%.0f")
@@ -621,7 +622,7 @@ class DebugView(ModernglWindowRenderer):
                 return obj
         return None
 
-    def render_debug(self, global_frame_counter: int, frametime: float) -> None:
+    def render_debug(self, frametime: float) -> None:
         io = imgui.get_io()
         if io.mouse_clicked[0] and not io.want_capture_mouse:
             obj = self.find_selected_object(io.mouse_pos)
@@ -632,7 +633,7 @@ class DebugView(ModernglWindowRenderer):
         self.texture_viewer.render()
         self.objects_viewer.render()
         self.shader_viewer.render()
-        self.frame_time_viewer.render(self.profiler.all_timings(global_frame_counter, frametime))
+        self.frame_time_viewer.render(self.profiler.all_timings(frametime))
         imgui.render()
 
         selected_texture = self.texture_viewer.textures[self.texture_viewer.selected_texture]
