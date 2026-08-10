@@ -3,6 +3,10 @@
 #extension GL_ARB_bindless_texture : require
 #extension GL_ARB_gpu_shader_int64 : require
 
+layout(std430, binding = 0) buffer InstanceIDs {
+    uint ids[];
+};
+
 struct Object {
     mat4 m_model;
     mat4 m_model_inverse;
@@ -10,7 +14,7 @@ struct Object {
     vec4 m_dimensions;
 };
 
-layout(std430, binding = 0) buffer Instances {
+layout(std430, binding = 1) buffer Instances {
     Object objects[];
 };
 
@@ -20,7 +24,7 @@ struct TextureInformation {
     uint material_row;
 };
 
-layout(std430, binding = 1) buffer Textures {
+layout(std430, binding = 2) buffer Textures {
     TextureInformation texture_infos[];
 };
 
@@ -34,7 +38,7 @@ uniform mat4 m_proj;
 #if USE_VOXEL_OBJECT_INSTANCING == 0
 uniform int u_instanceID;
 #else
-int u_instanceID = gl_InstanceID;
+int u_instanceID = int(ids[gl_InstanceID]);
 #endif
 
 flat out int v_instanceID;

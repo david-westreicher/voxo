@@ -56,4 +56,5 @@ lint.ignore = [
 "tests/**.py" = [
     "ANN201",  # Allow missing type annotations in tests
     "PLR2004", # Allow magic values
+    "SLF001",  # Allow private member access
 ]

@@ -1,4 +1,7 @@
 import struct
+from array import array
+from collections import deque
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import BinaryIO
@@ -11,11 +14,17 @@ from pyglm import glm
 from pyglm.glm import mat4x4, vec3
 from pyglm.glm import quat as Quat  # noqa: N812
 
-from .constants import LIGHT_TYPE_NUM_AREA, LIGHT_TYPE_NUM_CONE, LIGHT_TYPE_NUM_SPHERE, USE_VOXEL_OBJECT_INSTANCING
+from .constants import (
+    LIGHT_TYPE_NUM_AREA,
+    LIGHT_TYPE_NUM_CONE,
+    LIGHT_TYPE_NUM_SPHERE,
+    MAX_VOXEL_OBJECTS,
+    USE_VOXEL_OBJECT_INSTANCING,
+)
 from .model import Model, SimplifiedModel
 from .model.level_parser import VoxLight, VoxWater
 from .model.vox_parser import VoxModel
-from .utils import Sphere, cone, hemisphere
+from .utils import Sphere, Timer, cone, hemisphere
 
 OBJECT_ID_COUNTER = 0
 
@@ -25,15 +34,46 @@ class Object:
     geometry: VAO | None = None
     name: str = ""
     visible: bool = True
-    rotation: Quat = field(default=glm.quat())
-    translation: glm.vec3 = field(default=glm.vec3(0.0))
-    scale: glm.vec3 = field(default=glm.vec3(1.0))
+    last_frame_update: int = 0
+    _rotation: Quat = field(default=glm.quat())
+    _translation: glm.vec3 = field(default=glm.vec3(0.0))
+    _scale: glm.vec3 = field(default=glm.vec3(1.0))
+    global_id: int = field(default=0, compare=False)  # NOTE(david): This ID is volatile (doesn't need to be serialized)
+
+    @property
+    def rotation(self) -> Quat:
+        return self._rotation
+
+    @rotation.setter
+    def rotation(self, value: Quat) -> None:
+        self._rotation = value
+        self.last_frame_update = self.timer.time
+
+    @property
+    def translation(self) -> glm.vec3:
+        return self._translation
+
+    @translation.setter
+    def translation(self, value: glm.vec3) -> None:
+        self._translation = value
+        self.last_frame_update = self.timer.time
+
+    @property
+    def scale(self) -> glm.vec3:
+        return self._scale
+
+    @scale.setter
+    def scale(self, value: glm.vec3) -> None:
+        self._scale = value
+        self.last_frame_update = self.timer.time
 
     def __post_init__(self) -> None:
+        global OBJECT_ID_COUNTER  # noqa: PLW0603
+        self.global_id = OBJECT_ID_COUNTER
         if not self.name:
-            global OBJECT_ID_COUNTER  # noqa: PLW0603
             self.name = f"obj-{OBJECT_ID_COUNTER:04d}"
-            OBJECT_ID_COUNTER += 1
+        OBJECT_ID_COUNTER += 1
+        self.timer = Timer.global_timer()
 
     @property
     def transform(self) -> mat4x4:
@@ -54,7 +94,7 @@ class Object:
         rotation = Quat.from_bytes(f.read(16))
         translation = vec3.from_bytes(f.read(12))
         scale = vec3.from_bytes(f.read(12))
-        return Object(name=name, rotation=rotation, translation=translation, scale=scale)
+        return Object(name=name, _rotation=rotation, _translation=translation, _scale=scale)
 
 
 @dataclass(kw_only=True)
@@ -130,9 +170,7 @@ class SphereLight(Light):
     light_size: float
 
     def __init__(self, light_size: float = 0.1) -> None:
-        global OBJECT_ID_COUNTER  # noqa: PLW0603
         super().__init__(name=f"sphere_light_{OBJECT_ID_COUNTER}")
-        OBJECT_ID_COUNTER += 1
         self.light_size = light_size
 
     def upload_to_gpu(self) -> None:
@@ -159,9 +197,7 @@ class ConeLight(Light):
     penumbra: float
 
     def __init__(self, penumbra: float) -> None:
-        global OBJECT_ID_COUNTER  # noqa: PLW0603
         super().__init__(name=f"cone_light_{OBJECT_ID_COUNTER}")
-        OBJECT_ID_COUNTER += 1
         self.penumbra = penumbra
 
     def upload_to_gpu(self) -> None:
@@ -201,9 +237,7 @@ class AreaLight(Light):
     size: glm.vec2
 
     def __init__(self, size: glm.vec2) -> None:
-        global OBJECT_ID_COUNTER  # noqa: PLW0603
         super().__init__(name=f"area_light_{OBJECT_ID_COUNTER}")
-        OBJECT_ID_COUNTER += 1
         self.size = size
 
     def upload_to_gpu(self) -> None:
@@ -260,7 +294,7 @@ class Sun(Object):
     radius: float = 0.1
 
     def __init__(self) -> None:
-        super().__init__(geometry.cube(size=(1.0, 10.0, 1.0)))
+        super().__init__(name=f"sun_{OBJECT_ID_COUNTER}", geometry=geometry.cube(size=(1.0, 10.0, 1.0)))
         self.color = glm.vec3(1.0, 0.95, 0.85) * 2.5
         self.direction = glm.normalize(glm.vec3(1.0, 1.0, 1.0))
 
@@ -283,6 +317,8 @@ class TextureInformation:
         )
 
     def __eq__(self, other: object) -> bool:
+        if self is other:
+            return True
         if not isinstance(self, TextureInformation):
             return NotImplemented
         assert type(other) is TextureInformation
@@ -358,14 +394,11 @@ class VoxelObject(Object):
     model: SimplifiedModel
     texture_information: TextureInformation
     last_frame_transform: glm.mat4x4 = field(default_factory=lambda: glm.identity(glm.mat4x4))
-    is_dirty = True
     _voxel_texture: Texture3D | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
-            global OBJECT_ID_COUNTER  # noqa: PLW0603
             self.name = f"{self.model.name}_{OBJECT_ID_COUNTER}"
-            OBJECT_ID_COUNTER += 1
         super().__post_init__()
         self._center_translation: glm.vec3 = glm.vec3(0)
         self._center_translation.x = -(self.model.opengl_dimensions[0] // 2)
@@ -391,6 +424,17 @@ class VoxelObject(Object):
 
         if USE_VOXEL_OBJECT_INSTANCING:
             self.voxel_texture_handle = self._voxel_texture.get_handle(resident=True)
+
+    @property
+    def gpu_transform_bytes(self) -> bytes:
+        return b"".join(
+            (
+                self.transform.to_bytes(),
+                glm.inverse(self.transform).to_bytes(),
+                self.last_frame_transform.to_bytes(),
+                glm.vec4(*self.model.opengl_dimensions, 1).to_bytes(),
+            )
+        )
 
     @property
     def center(self) -> glm.vec3:
@@ -436,12 +480,14 @@ class VoxelObject(Object):
 
     @property
     def transform(self) -> mat4x4:
-        return (
-            glm.translate(self.translation)  # type:ignore[return-value]
-            @ glm.mat4_cast(self.rotation)
-            @ glm.scale(self.scale)
-            @ glm.translate(self._center_translation)
-        )
+        if self.last_frame_update >= self.timer.time:
+            self._cached_transform = (
+                glm.translate(self.translation)
+                @ glm.mat4_cast(self.rotation)
+                @ glm.scale(self.scale)
+                @ glm.translate(self._center_translation)
+            )
+        return self._cached_transform  # type:ignore[return-value]
 
     def write(self, f: BinaryIO) -> None:
         super().write(f)
@@ -454,11 +500,93 @@ class VoxelObject(Object):
         return VoxelObject(
             name=obj.name,
             texture_information=texture_information,
-            rotation=obj.rotation,
-            translation=obj.translation,
-            scale=obj.scale,
+            _rotation=obj.rotation,
+            _translation=obj.translation,
+            _scale=obj.scale,
             model=model,
         )
+
+
+class VoxelObjectGPUBuffer:
+    TEXTURE_INSTANCE_SIZE = struct.calcsize("QII")
+    TRANSFORM_INSTANCE_SIZE = struct.calcsize("16f16f16f4f")
+    VISIBILITY_INSTANCE_SIZE = struct.calcsize("I")
+
+    def __init__(self, ctx: Context, max_objects: int = MAX_VOXEL_OBJECTS) -> None:
+        self.free_slots = deque(range(max_objects))
+        self.slot_mapping: dict[int, int] = {}
+        self.object_transform_buffer = ctx.buffer(
+            reserve=self.TRANSFORM_INSTANCE_SIZE * MAX_VOXEL_OBJECTS,
+            dynamic=True,
+        )
+        self.object_texture_buffer = ctx.buffer(
+            reserve=self.TEXTURE_INSTANCE_SIZE * MAX_VOXEL_OBJECTS,
+            dynamic=True,
+        )
+        self.visibility_buffer = ctx.buffer(
+            reserve=self.VISIBILITY_INSTANCE_SIZE * MAX_VOXEL_OBJECTS,
+            dynamic=True,
+        )
+        self.ctx = ctx
+
+    def update_gpu_buffers(self, voxel_objects: list[VoxelObject], global_frame_counter: int) -> None:
+        dirty_texture_slots: list[tuple[int, VoxelObject]] = []
+        dirty_transform_slots: list[tuple[int, VoxelObject]] = []
+        for obj in voxel_objects:
+            if obj.global_id not in self.slot_mapping:
+                if not self.free_slots:
+                    msg = "No free slot for new object"
+                    raise IndexError(msg)
+                free_slot = self.free_slots.popleft()
+                self.slot_mapping[obj.global_id] = free_slot
+                dirty_texture_slots.append((free_slot, obj))
+
+            # NOTE(david): last_frame_transform still needs to be updated one frame more
+            #              could be optimized by just updating last_frame_transform for them
+            if obj.last_frame_update + 1 < global_frame_counter:
+                continue
+            current_slot = self.slot_mapping[obj.global_id]
+            dirty_transform_slots.append((current_slot, obj))
+        dirty_texture_slots.sort(key=lambda x: x[0])
+        dirty_transform_slots.sort(key=lambda x: x[0])
+
+        if USE_VOXEL_OBJECT_INSTANCING:
+            for consecutive_region in self._group_into_consecutive_regions(dirty_texture_slots):
+                texture_update_buffer = b"".join(
+                    struct.pack("<QII", obj.voxel_texture_handle, obj.model.palette_row, obj.model.material_row)
+                    for _, obj in consecutive_region
+                )
+                self.object_texture_buffer.write(
+                    texture_update_buffer,
+                    offset=consecutive_region[0][0] * self.TEXTURE_INSTANCE_SIZE,
+                )
+
+        for consecutive_region in self._group_into_consecutive_regions(dirty_transform_slots):
+            transform_update_buffer = b"".join(obj.gpu_transform_bytes for _, obj in consecutive_region)
+            self.object_transform_buffer.write(
+                transform_update_buffer,
+                offset=consecutive_region[0][0] * self.TRANSFORM_INSTANCE_SIZE,
+            )
+
+    def update_visibility_buffer(self, visible_objects: list[VoxelObject]) -> None:
+        visible_slot_ids = array("I", (self.slot_mapping[obj.global_id] for obj in visible_objects)).tobytes()
+        self.visibility_buffer.write(visible_slot_ids, offset=0)
+
+    @staticmethod
+    def _group_into_consecutive_regions(
+        sorted_slot_mapping: Sequence[tuple[int, VoxelObject]],
+    ) -> Iterable[list[tuple[int, VoxelObject]]]:
+        group: list[tuple[int, VoxelObject]] = []
+        for el in sorted_slot_mapping:
+            slot, _ = el
+            if not group or slot != group[-1][0] + 1:
+                if group:
+                    yield group
+                group = [el]
+            else:
+                group.append(el)
+        if group:
+            yield group
 
 
 @dataclass(kw_only=True)
@@ -478,8 +606,8 @@ class Water(Object):
         return Water(
             color=vox_water.color,
             vertices=vox_water.vertices,
-            translation=vox_water.translation,
-            rotation=vox_water.rotation,
+            _translation=vox_water.translation,
+            _rotation=vox_water.rotation,
         )
 
     def write(self, f: BinaryIO) -> None:
@@ -496,8 +624,8 @@ class Water(Object):
         vertices = [glm.vec2.from_bytes(f.read(8)) for _ in range(vertices_num)]
         return Water(
             name=obj.name,
-            translation=obj.translation,
-            rotation=obj.rotation,
+            _translation=obj.translation,
+            _rotation=obj.rotation,
             color=color,
             vertices=vertices,
         )
@@ -551,8 +679,8 @@ class World:
                     name=vox_model.shape_name,
                     texture_information=world.texture_information,
                     model=model.simplify(palette_row, material_row),
-                    rotation=vox_model.rotation,
-                    translation=vox_model.translation,
+                    _rotation=vox_model.rotation,
+                    _translation=vox_model.translation,
                 )
             )
         # TODO(david): support capsule lights
