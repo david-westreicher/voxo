@@ -71,7 +71,7 @@ Teardown-like voxel renderer
 ```bash
 virtualenv .env
 source .env/bin/activate
-pip install .
-
+pip install -e .
+python -m voxo --convert_td_to_level resources/levels/test/main.xml
 python -m voxo
 ```

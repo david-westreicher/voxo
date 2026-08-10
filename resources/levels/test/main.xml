@@ -1,0 +1,28 @@
+<scene>
+    <group name="World Body">
+		<vox pos="15.0 0.1 5.0" rot="0 90 0" file="MOD/vox/EightiesSuv.vox" object=""/>
+		<vox pos="0.0 0.1 0.0" rot="0 0 0" file="MOD/vox/Astro.vox" object=""/>
+		<vox pos="25.0 0.1 0.0" rot="0 0 0" file="MOD/vox/Long Truck.vox" object=""/>
+		<vox pos="5.0 0.1 -3.0" rot="0 0 0" file="MOD/vox/fruit stand.vox" object=""/>
+
+        <vox pos="0 0 0" rot="0 0 0" object="" file="MOD/vox/plane.vox"/>
+        <vox pos="10 0 0" rot="0 0 0" object="" file="MOD/vox/plane.vox"/>
+        <vox pos="20 0 0" rot="0 0 0" object="" file="MOD/vox/plane.vox"/>
+        <vox pos="30 0 0" rot="0 0 0" object="" file="MOD/vox/plane.vox"/>
+        <vox pos="0 5.1 -5.0" rot="90 0 0" object="" file="MOD/vox/plane.vox"/>
+        <vox pos="10 5.1 -5.0" rot="90 0 0" object="" file="MOD/vox/plane.vox"/>
+        <vox pos="20 5.1 -5.0" rot="90 0 0" object="" file="MOD/vox/plane.vox"/>
+        <vox pos="30 5.1 -5.0" rot="90 0 0" object="" file="MOD/vox/plane.vox"/>
+
+        <vox pos="20 10 -4.2" rot="90 0 0" object="" file="MOD/vox/materials.vox"/>
+        <vox pos="20 2 -4.5" rot="0 0 0" object="" file="MOD/vox/rand.vox"/>
+    </group>
+	<group name="Water">
+		<water pos="0 0 0" type="polygon" color="0.03 0.12 0.15" visibility="5.3">
+			<vertex pos="-500 -500"/>
+			<vertex pos="500 -500"/>
+			<vertex pos="500 500"/>
+			<vertex pos="-500 500"/>
+		</water>
+	</group>
+</scene>

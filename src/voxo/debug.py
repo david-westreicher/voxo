@@ -263,8 +263,6 @@ def folder_structure(path: Path) -> list[Path]:
 
 
 class ObjectsViewer:
-    MODEL_DIR = Path("./resources/models/")
-
     def __init__(self, scene: Scene, window: ModernglWindowRenderer, window_cfg: WindowConfig) -> None:
         self.scene = scene
         self.selected_object_id: int | None = None
@@ -348,8 +346,6 @@ class ObjectsViewer:
                         clicked, _ = imgui.selectable(water.name, self.selected_object_id == water.global_id)
                         if clicked:
                             self.selected_object_id = water.global_id
-                if imgui.collapsing_header("Models"):
-                    self.draw_model_file_tree(self.MODEL_DIR)
             imgui.end_child()
 
             imgui.same_line()
