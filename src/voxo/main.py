@@ -160,7 +160,11 @@ class VoxoWindow(CameraWindow):
 
     @contextmanager
     def profile(self, name: str) -> Iterator[None]:
-        with self.ctx.debug_scope(name), self.debugger.profiler.query(name, self.frame_counter):
+        with (
+            self.ctx.debug_scope(name),
+            self.debugger.gpu_profiler.query(name, self.frame_counter),
+            self.debugger.cpu_profiler.query(name),
+        ):
             yield
 
     def sync_camera(self, camera: Camera) -> None:
@@ -188,15 +192,18 @@ class VoxoWindow(CameraWindow):
                     # TODO(david): clear dirty objects
                     self.global_occluder.blit_object(voxel_object)
                     occluder_was_updated = True
-
         with self.profile("occluder mipmaps"):
             if occluder_was_updated:
                 self.global_occluder.update_mipmaps()
 
         # Fill GBuffer
-        with self.profile("fill gbuffer"):
-            visible_objects = self.scene.visible_objects(self.synced_camera)
+        with self.debugger.cpu_profiler.query("visible objects"):
+            # TODO(david): Replace this with GPU culling
+            visible_objects = [obj for obj in self.scene.voxel_objects if obj.visible]
             self.voxel_object_gpu_buffer.update_gpu_buffers(self.scene.voxel_objects, self.global_timer.time)
+            visible_objects.sort(key=lambda obj: glm.distance2(self.synced_camera.position, obj.translation))
+
+        with self.profile("fill gbuffer"):
             gbuffer = self.gbuffer.current
             gbuffer.start()
             self.voxel_renderer.render_objects(
@@ -208,7 +215,7 @@ class VoxoWindow(CameraWindow):
                 self.frame_counter,
             )
             for obj in self.scene.voxel_objects:
-                obj.last_frame_transform = glm.mat4x4(obj.transform)
+                obj.last_frame_transform = obj.transform
 
         with self.profile("smooth normals"):
             # TODO(david): Currently unused because water renders into normal buffer

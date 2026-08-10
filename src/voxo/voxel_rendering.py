@@ -144,7 +144,7 @@ class VoxelRenderer:
     def render_objects(  # noqa: PLR0913
         self,
         voxel_object_gpu_buffer: VoxelObjectGPUBuffer,
-        voxel_objects: list[VoxelObject],
+        voxel_objects: list[VoxelObject],  # NOTE(david): should be sorted based on camera distance
         camera: Camera,
         prev_viewproj: glm.mat4x4,
         prev_linear_depth_texture: Texture,
@@ -152,9 +152,8 @@ class VoxelRenderer:
     ) -> None:
         if len(voxel_objects) == 0:
             return
-        assert all(obj.texture_information == voxel_objects[0].texture_information for obj in voxel_objects)
+        assert all(obj.texture_information is voxel_objects[0].texture_information for obj in voxel_objects)
         texture_information = voxel_objects[0].texture_information
-        voxel_objects.sort(key=lambda obj: glm.distance2(camera.position, obj.center))
 
         ctx = self.program.ctx
         self.program["m_proj"].write(camera.projection.matrix)

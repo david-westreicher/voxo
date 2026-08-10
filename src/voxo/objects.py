@@ -37,6 +37,7 @@ class Object:
     _rotation: Quat = field(default=glm.quat())
     _translation: glm.vec3 = field(default=glm.vec3(0.0))
     _scale: glm.vec3 = field(default=glm.vec3(1.0))
+    global_id: int = field(default=0, compare=False)  # NOTE(david): This ID is volatile (doesn't need to be serialized)
 
     @property
     def rotation(self) -> Quat:
@@ -66,10 +67,11 @@ class Object:
         self.last_frame_update = self.timer.time
 
     def __post_init__(self) -> None:
+        global OBJECT_ID_COUNTER  # noqa: PLW0603
+        self.global_id = OBJECT_ID_COUNTER
         if not self.name:
-            global OBJECT_ID_COUNTER  # noqa: PLW0603
             self.name = f"obj-{OBJECT_ID_COUNTER:04d}"
-            OBJECT_ID_COUNTER += 1
+        OBJECT_ID_COUNTER += 1
         self.timer = Timer.global_timer()
 
     @property
@@ -167,9 +169,7 @@ class SphereLight(Light):
     light_size: float
 
     def __init__(self, light_size: float = 0.1) -> None:
-        global OBJECT_ID_COUNTER  # noqa: PLW0603
         super().__init__(name=f"sphere_light_{OBJECT_ID_COUNTER}")
-        OBJECT_ID_COUNTER += 1
         self.light_size = light_size
 
     def upload_to_gpu(self) -> None:
@@ -196,9 +196,7 @@ class ConeLight(Light):
     penumbra: float
 
     def __init__(self, penumbra: float) -> None:
-        global OBJECT_ID_COUNTER  # noqa: PLW0603
         super().__init__(name=f"cone_light_{OBJECT_ID_COUNTER}")
-        OBJECT_ID_COUNTER += 1
         self.penumbra = penumbra
 
     def upload_to_gpu(self) -> None:
@@ -238,9 +236,7 @@ class AreaLight(Light):
     size: glm.vec2
 
     def __init__(self, size: glm.vec2) -> None:
-        global OBJECT_ID_COUNTER  # noqa: PLW0603
         super().__init__(name=f"area_light_{OBJECT_ID_COUNTER}")
-        OBJECT_ID_COUNTER += 1
         self.size = size
 
     def upload_to_gpu(self) -> None:
@@ -297,7 +293,7 @@ class Sun(Object):
     radius: float = 0.1
 
     def __init__(self) -> None:
-        super().__init__(geometry.cube(size=(1.0, 10.0, 1.0)))
+        super().__init__(name=f"sun_{OBJECT_ID_COUNTER}", geometry=geometry.cube(size=(1.0, 10.0, 1.0)))
         self.color = glm.vec3(1.0, 0.95, 0.85) * 2.5
         self.direction = glm.normalize(glm.vec3(1.0, 1.0, 1.0))
 
@@ -320,6 +316,8 @@ class TextureInformation:
         )
 
     def __eq__(self, other: object) -> bool:
+        if self is other:
+            return True
         if not isinstance(self, TextureInformation):
             return NotImplemented
         assert type(other) is TextureInformation
@@ -396,14 +394,10 @@ class VoxelObject(Object):
     texture_information: TextureInformation
     last_frame_transform: glm.mat4x4 = field(default_factory=lambda: glm.identity(glm.mat4x4))
     _voxel_texture: Texture3D | None = None
-    global_id: int = field(default=0, compare=False)  # NOTE(david): This ID is volatile (doesn't need to be serialized)
 
     def __post_init__(self) -> None:
-        global OBJECT_ID_COUNTER  # noqa: PLW0603
-        self.global_id = OBJECT_ID_COUNTER
         if not self.name:
             self.name = f"{self.model.name}_{OBJECT_ID_COUNTER}"
-        OBJECT_ID_COUNTER += 1
         super().__post_init__()
         self._center_translation: glm.vec3 = glm.vec3(0)
         self._center_translation.x = -(self.model.opengl_dimensions[0] // 2)
@@ -485,12 +479,14 @@ class VoxelObject(Object):
 
     @property
     def transform(self) -> mat4x4:
-        return (
-            glm.translate(self.translation)  # type:ignore[return-value]
-            @ glm.mat4_cast(self.rotation)
-            @ glm.scale(self.scale)
-            @ glm.translate(self._center_translation)
-        )
+        if self.last_frame_update >= self.timer.time:
+            self._cached_transform = (
+                glm.translate(self.translation)
+                @ glm.mat4_cast(self.rotation)
+                @ glm.scale(self.scale)
+                @ glm.translate(self._center_translation)
+            )
+        return self._cached_transform  # type:ignore[return-value]
 
     def write(self, f: BinaryIO) -> None:
         super().write(f)
@@ -553,15 +549,16 @@ class VoxelObjectGPUBuffer:
         dirty_texture_slots.sort(key=lambda x: x[0])
         dirty_transform_slots.sort(key=lambda x: x[0])
 
-        for consecutive_region in self._group_into_consecutive_regions(dirty_texture_slots):
-            texture_update_buffer = b"".join(
-                struct.pack("<QII", obj.voxel_texture_handle, obj.model.palette_row, obj.model.material_row)
-                for _, obj in consecutive_region
-            )
-            self.object_texture_buffer.write(
-                texture_update_buffer,
-                offset=consecutive_region[0][0] * self.TEXTURE_INSTANCE_SIZE,
-            )
+        if USE_VOXEL_OBJECT_INSTANCING:
+            for consecutive_region in self._group_into_consecutive_regions(dirty_texture_slots):
+                texture_update_buffer = b"".join(
+                    struct.pack("<QII", obj.voxel_texture_handle, obj.model.palette_row, obj.model.material_row)
+                    for _, obj in consecutive_region
+                )
+                self.object_texture_buffer.write(
+                    texture_update_buffer,
+                    offset=consecutive_region[0][0] * self.TEXTURE_INSTANCE_SIZE,
+                )
 
         for consecutive_region in self._group_into_consecutive_regions(dirty_transform_slots):
             transform_update_buffer = b"".join(obj.gpu_transform_bytes for _, obj in consecutive_region)

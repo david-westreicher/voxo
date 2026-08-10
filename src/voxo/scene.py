@@ -1,4 +1,3 @@
-from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import cache, cached_property
 from pathlib import Path
@@ -6,11 +5,10 @@ from pathlib import Path
 import numpy as np
 from moderngl import Context, Texture
 from moderngl_window.context.base.window import WindowConfig
-from moderngl_window.scene.camera import Camera
 from pyglm import glm
 
 from .objects import Light, Sun, VoxelObject, Water, World
-from .utils import chunk_iters, frustum_cull_spheres, hdr_texture
+from .utils import hdr_texture
 
 
 @dataclass
@@ -61,7 +59,8 @@ class Scene:
         for water in self.world.waters:
             self.add_water(water)
         self.world.texture_information.upload_to_gpu(ctx)
-        self.object_generator = chunk_iters(self.world.voxel_objects, 4000)
+        for obj in self.world.voxel_objects:
+            self.add_voxel_object(obj)
 
     def add_voxel_object(self, voxel_object: VoxelObject) -> VoxelObject:
         self.voxel_objects.append(voxel_object)
@@ -79,26 +78,11 @@ class Scene:
         return water
 
     @cached_property
-    def suns(self) -> Sequence[Sun]:
+    def suns(self) -> list[Sun]:
         return [self.sun]
 
-    def update(self, time: float) -> None:  # noqa: ARG002
-        objs = next(self.object_generator, None)
-        if objs is not None:
-            for obj in objs:
-                self.add_voxel_object(obj)
-
-    def visible_objects(self, camera: Camera) -> list[VoxelObject]:
-        bounding_spheres = [obj.bounding_sphere for obj in self.voxel_objects]
-        return [
-            obj
-            for obj, vis in zip(
-                self.voxel_objects,
-                frustum_cull_spheres(camera.matrix, camera.projection.matrix, bounding_spheres),
-                strict=True,
-            )
-            if vis and obj.visible
-        ]
+    def update(self, time: float) -> None:
+        pass
 
 
 @cache

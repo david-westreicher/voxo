@@ -3,6 +3,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
+from time import perf_counter_ns
 from typing import cast
 
 import moderngl
@@ -21,7 +22,7 @@ from .scene import Scene
 from .utils import Timer, compute_camera_ray, ray_sphere_intersection
 
 
-class Profiler:
+class GPUProfiler:
     def __init__(self, ctx: Context) -> None:
         self.query_buffer: dict[tuple[str, int], Query] = defaultdict(lambda: ctx.query(time=True))
         self.global_timer = Timer.global_timer()
@@ -47,6 +48,18 @@ class Profiler:
         timings = {name: self.timing(name, self.global_timer.time) for name in names}
         timings["frame time"] = int(frame_time * 1_000_000_000)
         return timings
+
+
+class CPUProfiler:
+    def __init__(self) -> None:
+        self.timings: dict[str, int] = {}
+
+    @contextmanager
+    def query(self, name: str) -> Iterator[None]:
+        start_time = perf_counter_ns()
+        yield
+        duration = perf_counter_ns() - start_time
+        self.timings[name] = duration
 
 
 class ScrollingBuffer:
@@ -204,7 +217,8 @@ class TextureViewer:
 
 
 class FrameTimeViewer:
-    def __init__(self) -> None:
+    def __init__(self, name: str) -> None:
+        self.name = name
         self.stop_frame_counter = False
         self.buffers: dict[str, ScrollingBuffer] = defaultdict(ScrollingBuffer)
         self.current_frame = 0
@@ -218,7 +232,7 @@ class FrameTimeViewer:
                 total_time += time
         self.total_buffer.add_point(self.current_frame, total_time * 0.000001)
 
-        imgui.begin("Profiler", p_open=True)
+        imgui.begin(self.name, p_open=True)
         _, self.stop_frame_counter = imgui.checkbox("Stop Framecounter", self.stop_frame_counter)
 
         flags = implot.AxisFlags_.no_tick_labels
@@ -253,7 +267,7 @@ class ObjectsViewer:
 
     def __init__(self, scene: Scene, window: ModernglWindowRenderer, window_cfg: WindowConfig) -> None:
         self.scene = scene
-        self.selected_object_state: tuple[str, int] | None = None
+        self.selected_object_id: int | None = None
         self.filter_text = ""
         self.window = window
 
@@ -301,37 +315,37 @@ class ObjectsViewer:
             if imgui.begin_child("object_list", size=(200, 0)):
                 _, self.filter_text = imgui.input_text("Search", self.filter_text, 256)
                 objects = sorted(
-                    [obj for obj in enumerate(self.scene.voxel_objects) if self.filter_text in obj[1].name],
-                    key=lambda obj: obj[1].name,
+                    [obj for obj in self.scene.voxel_objects if self.filter_text in obj.name],
+                    key=lambda obj: obj.name,
                 )
                 if imgui.collapsing_header(f"Voxos ({len(objects)})"):
-                    for i, obj in objects:
-                        clicked, _ = imgui.selectable(obj.name, self.selected_object_state == ("Voxos", i))
+                    for obj in objects:
+                        clicked, _ = imgui.selectable(obj.name, self.selected_object_id == obj.global_id)
                         if clicked:
-                            self.selected_object_state = ("Voxos", i)
+                            self.selected_object_id = obj.global_id
                 lights = sorted(
-                    filter(lambda light: self.filter_text in light[1].name, enumerate(self.scene.lights)),
-                    key=lambda light: light[1].name,
+                    filter(lambda light: self.filter_text in light.name, self.scene.lights),
+                    key=lambda light: light.name,
                 )
                 if imgui.collapsing_header(f"Lights ({len(lights)})"):
-                    for i, light in lights:
-                        clicked, _ = imgui.selectable(light.name, self.selected_object_state == ("Lights", i))
+                    for light in lights:
+                        clicked, _ = imgui.selectable(light.name, self.selected_object_id == light.global_id)
                         if clicked:
-                            self.selected_object_state = ("Lights", i)
+                            self.selected_object_id = light.global_id
                     if imgui.button("Add Light", size=(0, 0)):
                         new_light = SphereLight()
                         self.scene.add_light(new_light)
-                        self.selected_object_state = ("Lights", self.scene.lights.index(new_light))
+                        self.selected_object_id = new_light.global_id
                 if imgui.collapsing_header(f"Suns ({len(self.scene.suns)})"):
-                    for i, sun in enumerate(self.scene.suns):
-                        clicked, _ = imgui.selectable(sun.name, self.selected_object_state == ("Suns", i))
+                    for sun in self.scene.suns:
+                        clicked, _ = imgui.selectable(sun.name, self.selected_object_id == sun.global_id)
                         if clicked:
-                            self.selected_object_state = ("Suns", i)
+                            self.selected_object_id = sun.global_id
                 if imgui.collapsing_header(f"Water ({len(self.scene.waters)})"):
-                    for i, water in enumerate(self.scene.waters):
-                        clicked, _ = imgui.selectable(water.name, self.selected_object_state == ("Waters", i))
+                    for water in self.scene.waters:
+                        clicked, _ = imgui.selectable(water.name, self.selected_object_id == water.global_id)
                         if clicked:
-                            self.selected_object_state = ("Waters", i)
+                            self.selected_object_id = water.global_id
                 if imgui.collapsing_header("Models"):
                     self.draw_model_file_tree(self.MODEL_DIR)
             imgui.end_child()
@@ -341,6 +355,7 @@ class ObjectsViewer:
             if imgui.begin_child("properties"):
                 if self.selected_object:
                     imgui.text(f"Name: {self.selected_object.name}")
+                    imgui.text(f"ID: {self.selected_object.global_id}")
                     _, self.selected_object.visible = imgui.checkbox("Visible", self.selected_object.visible)
                     imgui.separator_text("Transform")
                     t = self.selected_object.translation
@@ -359,8 +374,7 @@ class ObjectsViewer:
                     self.selected_object.scale = glm.vec3(new_scale)
 
                     if isinstance(self.selected_object, VoxelObject):
-                        if imgui.button("Reblit"):
-                            self.selected_object.last_frame_update = Timer.global_timer().time + 1
+                        self.selected_object.last_frame_update = Timer.global_timer().time + 1
                         imgui.separator_text("Dimensions")
                         dim = self.selected_object.model.opengl_dimensions
                         _, _ = imgui.drag_float3("##", list(dim), v_speed=0.0, v_min=-10, v_max=10, format="%.0f")
@@ -489,18 +503,14 @@ class ObjectsViewer:
 
     @property
     def selected_object(self) -> Object | None:
-        if self.selected_object_state is None:
+        if self.selected_object_id is None:
             return None
-        obj_type, index = self.selected_object_state
-        if obj_type == "Suns":
-            return self.scene.suns[index]
-        if obj_type == "Lights":
-            return self.scene.lights[index]
-        if obj_type == "Voxos":
-            return self.scene.voxel_objects[index]
-        if obj_type == "Waters":
-            return self.scene.waters[index]
-        return None
+        global_id = self.selected_object_id
+        return next(
+            obj
+            for obj in self.scene.suns + self.scene.lights + self.scene.voxel_objects + self.scene.waters
+            if obj.global_id == global_id
+        )
 
 
 def imgui_matrix(name: str, values: tuple[float], v_speed: float) -> None:
@@ -585,7 +595,8 @@ class DebugView(ModernglWindowRenderer):
         textures: list[Texture],
         shaders: list[Program],
     ) -> None:
-        self.profiler = Profiler(window.ctx)
+        self.gpu_profiler = GPUProfiler(window.ctx)
+        self.cpu_profiler = CPUProfiler()
         imgui.create_context()
         implot.create_context()
         super().__init__(window.wnd)  # type:ignore[no-untyped-call]
@@ -598,7 +609,8 @@ class DebugView(ModernglWindowRenderer):
         self.register_texture(self.objects_viewer.material_texture)
         self.register_texture(self.objects_viewer.palette_texture)
         self.shader_viewer = ShaderViewer(shaders)
-        self.frame_time_viewer = FrameTimeViewer()
+        self.gpu_time_viewer = FrameTimeViewer("GPU Timings")
+        self.cpu_time_viewer = FrameTimeViewer("CPU Timings")
         self.scene = scene
         self.camera = camera
 
@@ -607,7 +619,7 @@ class DebugView(ModernglWindowRenderer):
 
     @property
     def is_frame_counter_stopped(self) -> bool:
-        return self.frame_time_viewer.stop_frame_counter
+        return self.gpu_time_viewer.stop_frame_counter
 
     def find_selected_object(self, screen_coord: ImVec2) -> VoxelObject | None:
         def cam_distance(obj: VoxelObject) -> float:
@@ -627,13 +639,14 @@ class DebugView(ModernglWindowRenderer):
         if io.mouse_clicked[0] and not io.want_capture_mouse:
             obj = self.find_selected_object(io.mouse_pos)
             if obj:
-                self.objects_viewer.selected_object_state = ("Voxos", self.scene.voxel_objects.index(obj))
+                self.objects_viewer.selected_object_id = obj.global_id
         imgui.new_frame()
         self.global_occluder_viewer.render()
         self.texture_viewer.render()
         self.objects_viewer.render()
         self.shader_viewer.render()
-        self.frame_time_viewer.render(self.profiler.all_timings(frametime))
+        self.gpu_time_viewer.render(self.gpu_profiler.all_timings(frametime))
+        self.cpu_time_viewer.render(self.cpu_profiler.timings)
         imgui.render()
 
         selected_texture = self.texture_viewer.textures[self.texture_viewer.selected_texture]
