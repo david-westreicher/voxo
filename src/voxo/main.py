@@ -1,3 +1,4 @@
+from argparse import ArgumentParser
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -53,7 +54,7 @@ class CameraWindow(moderngl_window.WindowConfig):  # type: ignore[misc, name-def
 
         if action == keys.ACTION_PRESS:
             if key == keys.LEFT_SHIFT:
-                self.camera.velocity = 5
+                self.camera.velocity = 20
             if key == keys.C:
                 self.camera_enabled = not self.camera_enabled
                 self.wnd.mouse_exclusivity = self.camera_enabled
@@ -104,7 +105,7 @@ class VoxoWindow(CameraWindow):
         self.water_renderer = WaterRenderer(self, SCREEN_DIMENSIONS)
         self.post_processing = PostProcessing(self, SCREEN_DIMENSIONS, global_skybox(self))
 
-        self.scene = Scene(self.ctx)
+        self.scene = Scene(self.ctx, self.argv.start_level)
         self.debugger = DebugView(
             self,
             self.scene,
@@ -125,6 +126,10 @@ class VoxoWindow(CameraWindow):
                 *self.water_renderer.shaders,
             ],
         )
+
+    @classmethod
+    def add_arguments(cls, parser: ArgumentParser) -> None:
+        parser.add_argument("--start_level", type=Path)
 
     def on_resize(self, width: int, height: int) -> None:
         super().on_resize(width, height)
@@ -273,6 +278,7 @@ class VoxoWindow(CameraWindow):
         with self.profile("post processing"):
             self.post_processing.render(
                 camera=self.synced_camera,
+                motion_vectors=self.gbuffer.current.motion_vectors,
                 suns=self.scene.suns,
                 light_texture=self.voxel_lighting.final_light_texture,
                 depth_texture=gbuffer.depth_texture,

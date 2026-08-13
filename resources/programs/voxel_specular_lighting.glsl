@@ -105,7 +105,7 @@ float fresnel(float f0, vec3 view_dir, vec3 normal) {
 }
 
 void main() {
-    Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, 0, 0.0);
+    Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, vec2(0.0));
     float depth = texture(u_depth, uv).r;
     vec4 material = texture(u_material, uv);
     float reflectivity = material.r;

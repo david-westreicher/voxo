@@ -32,7 +32,7 @@ layout(location = 0) out vec3 fragColor;
 void main() {
     float depth = texture(u_depth, uv).r;
     if (depth == 1.0) {
-        Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, 0, 0.0);
+        Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, vec2(0.0));
         fragColor = sky_color(u_skybox, camera_ray.direction, sun_direction, sun_color);
         return;
     }

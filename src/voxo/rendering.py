@@ -54,8 +54,12 @@ class GBuffer:
         # Clear depth and linear depth buffers
         self.framebuffer.color_mask = [(val,) * 4 for val in [False, False, True, False, False]]  # type:ignore[assignment]
         self.framebuffer.clear(red=max(GLOBAL_OCCLUDER_DIMENSIONS) * 10.0, depth=1.0)
+        # Clear albedo
         self.framebuffer.color_mask = [(val,) * 4 for val in [True, False, False, False, False]]  # type:ignore[assignment]
         self.framebuffer.clear(red=0.0, green=0.0, blue=0.0)
+        # Clear motion_vector flag
+        self.framebuffer.color_mask = [(val,) * 4 for val in [False, False, False, False, True]]  # type:ignore[assignment]
+        self.framebuffer.clear(red=-2.0, green=0.0, blue=0.0)
 
         ctx = self.framebuffer.ctx
         ctx.enable_only(moderngl.DEPTH_TEST)
@@ -123,13 +127,17 @@ class PostProcessing:
         self.postprocessing_program.label = "prog_postprocessing"
         self.tonemapping_program = window.load_program("programs/tonemapping.glsl", defines=GLOBAL_DEFINE)
         self.tonemapping_program.label = "prog_tonemapping"
+        self.copy_program = window.load_program("programs/copy.glsl", defines=GLOBAL_DEFINE)
+        self.copy_program.label = "prog_copy"
         self.quad = geometry.quad_fs(normals=False, uvs=True)
 
         self.bloom = Bloom(window, size)
+        self.taa = TAA(window, size)
 
     def render(
         self,
         camera: Camera,
+        motion_vectors: Texture,
         suns: Sequence[Sun],
         light_texture: Texture,
         depth_texture: Texture,
@@ -146,10 +154,13 @@ class PostProcessing:
         depth_texture.use(location=1)
         self.sky_texture.use(location=2)
         self.quad.render(self.postprocessing_program)
+        self.taa.render(self.final_texture, motion_vectors)
 
-        self.bloom.render(self.final_texture)
+        self.bloom.render(self.taa.clean_texture)
 
         self.final_framebuffer.use()
+        self.taa.clean_texture.use(location=0)
+        self.quad.render(self.copy_program)
         self.bloom.add_final_bloom(strength=1.0)
 
     def render_final_tonemapped_texture(self) -> None:
@@ -162,6 +173,7 @@ class PostProcessing:
             self.final_texture,
             self.sky_texture,
             *self.bloom.textures,
+            *self.taa.textures,
         ]
 
     @cached_property
@@ -170,6 +182,7 @@ class PostProcessing:
             self.postprocessing_program,
             self.tonemapping_program,
             *self.bloom.shaders,
+            *self.taa.shaders,
         ]
 
 
@@ -237,6 +250,49 @@ class Denoiser:
     @cached_property
     def shaders(self) -> list[Program]:
         return [self.program]
+
+
+class TAA:
+    def __init__(self, window: WindowConfig, size: tuple[int, int]) -> None:
+        self.pingpong = 0
+        self.textures = []
+        self.framebuffers = []
+        for i in range(2):
+            texture = window.ctx.texture(size, components=3, dtype="f2")
+            texture.label = f"texture2d_taa_{i}"
+            framebuffer = window.ctx.framebuffer(color_attachments=[texture])
+            self.textures.append(texture)
+            self.framebuffers.append(framebuffer)
+
+        self.taa_program = window.load_program("programs/taa.glsl", defines=GLOBAL_DEFINE)
+        self.taa_program.label = "program_taa"
+        self.quad = geometry.quad_fs(normals=False, uvs=True)
+
+    @property
+    def last_texture(self) -> Texture:
+        return self.textures[1 - self.pingpong]
+
+    @property
+    def clean_texture(self) -> Texture:
+        return self.textures[self.pingpong]
+
+    @property
+    def current_framebuffer(self) -> Framebuffer:
+        return self.framebuffers[self.pingpong]
+
+    def render(self, image: Texture, motion_vectors: Texture) -> None:
+        self.pingpong = 1 - self.pingpong
+
+        image.use(location=0)
+        self.last_texture.use(location=1)
+        motion_vectors.use(location=2)
+
+        self.framebuffers[self.pingpong].use()
+        self.quad.render(self.taa_program)
+
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [self.taa_program]
 
 
 class Bloom:

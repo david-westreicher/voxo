@@ -32,7 +32,7 @@ SKY_SETTING = SUNNY
 
 
 class Scene:
-    def __init__(self, ctx: Context) -> None:
+    def __init__(self, ctx: Context, start_level: Path) -> None:
         self.voxel_objects: list[VoxelObject] = []
         self.lights: list[Light] = []
         self.waters: list[Water] = []
@@ -43,17 +43,7 @@ class Scene:
         self.sun.direction = SKY_SETTING.sun_direction
         self.sun.color = SKY_SETTING.sun_color
 
-        self.world = World.from_file(Path("./resources/levels/test.lvl"))
-        # self.world = World.from_file(Path("./resources/levels/carib_sandbox.lvl"))  # noqa: ERA001
-        # self.world = World.from_file(Path("./resources/levels/caveisland_sandbox.lvl"))  # noqa: ERA001
-        # self.world = World.from_file(Path("./resources/levels/ch_factory_fetch.lvl"))  # noqa: ERA001
-        # self.world = World.from_file(Path("./resources/levels/ch_lee_fetch.lvl"))  # noqa: ERA001
-        # self.world = World.from_file(Path("./resources/levels/ch_mall_fetch.lvl"))  # noqa: ERA001
-        # self.world = World.from_file(Path("./resources/levels/cullington_sandbox.lvl"))  # noqa: ERA001
-        # self.world = World.from_file(Path("./resources/levels/frustrum_sandbox.lvl"))  # noqa: ERA001
-        # self.world = World.from_file(Path("./resources/levels/hub_carib_sandbox.lvl"))  # noqa: ERA001
-        # self.world = World.from_file(Path("./resources/levels/mansion_sandbox.lvl"))  # noqa: ERA001
-        # self.world = World.from_file(Path("./resources/levels/marina_sandbox.lvl"))  # noqa: ERA001
+        self.world = World.from_file(start_level)
         for light in self.world.lights:
             self.add_light(light)
         for water in self.world.waters:

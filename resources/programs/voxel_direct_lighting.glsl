@@ -92,7 +92,7 @@ vec3 sample_area_light(mat3 light_matrix, vec2 rand_vec) {
 
 #if LIGHT_TYPE == LIGHT_TYPE_SUN
 vec3 compute_direct_sun(vec3 pos, vec3 normal, vec3 sun_direction) {
-    vec3 ray_start = pos + normal * 1.0;
+    vec3 ray_start = pos + normal * 1.5;
     int max_steps = int(max(size.x, max(size.y, size.z))) * 3;
 
     vec3 L = normalize(sample_disk_light(sun_direction, normalize(sun_direction), lightRadius, generate_random_stbn_vec2(u_stbn_vec2, light_rand_state)));
@@ -110,7 +110,7 @@ vec3 compute_direct_sun(vec3 pos, vec3 normal, vec3 sun_direction) {
 }
 #else
 vec3 compute_direct_light(vec3 pos, vec3 normal, vec3 light_pos) {
-    vec3 ray_start = pos + normal * 1.0;
+    vec3 ray_start = pos + normal * 1.5;
     float LdotN = 1.0;
 
     #if LIGHT_TYPE == LIGHT_TYPE_SPHERE
@@ -162,10 +162,10 @@ void main() {
         out_irradiance = vec3(0.0);
         return;
     }
-    Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, 0, 0.0);
+    Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, vec2(0.0));
     float linear_depth = texture(u_linear_depth, uv).r;
     vec3 pos = camera_ray.origin + camera_ray.direction * linear_depth;
-    vec3 normal = texture(u_normal, uv).rgb;
+    vec3 normal = normalize(texture(u_normal, uv).rgb);
     #if LIGHT_TYPE == LIGHT_TYPE_SUN
     vec3 color = compute_direct_sun(pos, normal, sunDirection);
     #else

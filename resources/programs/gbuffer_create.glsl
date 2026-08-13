@@ -202,8 +202,8 @@ void main() {
     int MAX_STEPS = int(max(size.x, max(size.y, size.z))) * 3;
 
     vec2 screen_uv = gl_FragCoord.xy / SCREEN_DIMENSIONS;
-    // TODO(david): Deactivated pixel jittering for now, reactivate once final image TAA is implemented
-    Ray camera_ray = compute_camera_ray(screen_uv, uInvProjection, uInvView, frame_counter, 0.0);
+    vec2 jitter = (halton2D(frame_counter) - vec2(0.5)) * 0.5;
+    Ray camera_ray = compute_camera_ray(screen_uv, uInvProjection, uInvView, jitter);
     Ray local_ray = transform_to_local_ray(camera_ray, m_model_inverse);
 
     float t;
@@ -231,6 +231,7 @@ void main() {
             u_normal = normalize((m_model * vec4(hit.normal, 0.0)).xyz);
             u_linear_depth = distance(local_ray.origin, hit.position);
             u_motion_vector = compute_motion_vector(screen_uv, hit.position, m_prev_model, m_prev_viewproj);
+            u_motion_vector -= jitter / SCREEN_DIMENSIONS;
         } else {
             discard;
         }
