@@ -73,5 +73,5 @@ virtualenv .env
 source .env/bin/activate
 pip install -e .
 python -m voxo --convert_td_to_level resources/levels/test/main.xml
-python -m voxo
+python -m voxo --level resources/levels/test.lvl
 ```

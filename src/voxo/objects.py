@@ -597,7 +597,7 @@ class Water(Object):
     def upload_to_gpu(self) -> None:
         vao = VAO(self.name, mode=moderngl.TRIANGLE_FAN)
         # NOTE(david): counter z-fighting by moving down
-        vertices_data = b"".join(glm.vec3(vert.x, -0.01, vert.y).to_bytes() for vert in self.vertices)
+        vertices_data = b"".join(glm.vec3(vert.x, -0.5, vert.y).to_bytes() for vert in self.vertices)
         vao.buffer(vertices_data, buffer_format="3f", attribute_names=["in_position"])
         self.geometry = vao
 

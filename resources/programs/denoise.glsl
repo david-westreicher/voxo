@@ -71,7 +71,7 @@ vec3 spiral_sampling(vec2 uv, Plane plane, vec3 current_normal, vec3 current_col
         vec3 neighbor_col = texture(tex_current, sample_uv).rgb;
         float neighbor_depth = texture(tex_current_depth, sample_uv).r;
         vec3 neighbor_normal = texture(tex_current_normals, sample_uv).rgb;
-        Ray neighbor_ray = compute_camera_ray(sample_uv, u_inv_projection, u_inv_view, 0, 0.0);
+        Ray neighbor_ray = compute_camera_ray(sample_uv, u_inv_projection, u_inv_view, vec2(0.0));
         // TODO(david): depth rejection is broken somehow, increasing depth precision made it better
         if (abs(distance_to_plane(neighbor_ray, plane) - neighbor_depth) > 0.5) {
             continue;
@@ -101,7 +101,7 @@ void main() {
     float depth_below = texture(tex_current_depth, uv + vec2(0, -texel_size.y)).r;
     vec2 old_uv = uv + motion_vector;
     vec3 current_normal = texture(tex_current_normals, uv).rgb;
-    Ray ray = compute_camera_ray(uv, u_inv_projection, u_inv_view, 0, 0.0);
+    Ray ray = compute_camera_ray(uv, u_inv_projection, u_inv_view, vec2(0.0));
     vec3 world_space_pos = ray.origin + ray.direction * current_depth;
     float plane_d = dot(world_space_pos, current_normal);
     Plane plane = Plane(plane_d, current_normal);

@@ -24,8 +24,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="voxo")
     parser.add_argument("--convert_td_to_level", type=Path, help="Convert xml-td to level format", metavar="FILE")
     parser.add_argument("--output_level", type=Path, help="Output level file", metavar="FILE", default=None)
+    parser.add_argument("--level", type=Path, help="Level file to play", metavar="FILE", default=None)
     args = parser.parse_args()
     if args.convert_td_to_level:
         convert_td_to_level(args.convert_td_to_level, args.output_level)
     else:
-        moderngl_window.run_window_config(VoxoWindow)
+        moderngl_window.run_window_config(VoxoWindow, args=["--start_level", str(args.level)])

@@ -90,7 +90,7 @@ Hit dda(Ray ray, int max_steps, usampler3D voxels, Box bbox) {
 }
 
 void main() {
-    Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, 0, 0.0);
+    Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, vec2(0.0));
     camera_ray.origin -= occluder_translation;
     Hit hit = dda(camera_ray, MAX_STEPS, occluder_texture, bbox);
     if (!hit.hit) {

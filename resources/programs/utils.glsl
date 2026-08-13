@@ -25,9 +25,8 @@ struct Box {
     vec3 max;
 };
 
-Ray compute_camera_ray(vec2 screen_uv, mat4 uInvProjection, mat4 uInvView, int frame_counter, float jitter_scale) {
-    vec2 jitter = halton2D(frame_counter) - vec2(0.5);
-    vec2 ndc = (screen_uv + jitter * jitter_scale / SCREEN_DIMENSIONS) * 2.0 - 1.0;
+Ray compute_camera_ray(vec2 screen_uv, mat4 uInvProjection, mat4 uInvView, vec2 jitter) {
+    vec2 ndc = (screen_uv + jitter / SCREEN_DIMENSIONS) * 2.0 - 1.0;
     vec4 clip = vec4(ndc, -1.0, 1.0);
     vec4 eye = uInvProjection * clip;
     eye = vec4(eye.xy, -1.0, 0.0);

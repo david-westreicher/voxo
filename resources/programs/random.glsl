@@ -13,12 +13,12 @@ float halton(int base, int index) {
 }
 
 vec2 halton2D(int frame_counter) {
-    frame_counter = frame_counter % 32;
+    frame_counter = frame_counter % 64;
     return vec2(halton(2, frame_counter), halton(3, frame_counter));
 }
 
 vec3 halton3D(int frame_counter) {
-    frame_counter = frame_counter % 32;
+    frame_counter = frame_counter % 64;
     return vec3(halton(2, frame_counter), halton(3, frame_counter), halton(5, frame_counter));
 }
 

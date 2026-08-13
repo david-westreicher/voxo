@@ -77,7 +77,7 @@ void main() {
         out_irradiance = vec3(0.0);
         return;
     }
-    Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, 0, 0.0);
+    Ray camera_ray = compute_camera_ray(uv, uInvProjection, uInvView, vec2(0.0));
     vec3 pos = camera_ray.origin + camera_ray.direction * linear_depth;
     vec3 normal = texture(u_normal, uv).rgb;
     vec3 color = compute_ambient_lighting(pos, normal, rnd);
