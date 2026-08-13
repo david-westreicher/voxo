@@ -120,7 +120,7 @@ bool check_voxel_map_hit(vec3 p, Box bbox, usampler3D u_voxel_data, uint materia
     float transparency = -texelFetch(u_full_material_texture, material_coord, 0).a;
     if (transparency > 0) {
         ivec2 screen_pos = ivec2(gl_FragCoord.xy);
-        if (((screen_pos.x + screen_pos.y) & 1) == 0) {
+        if (((screen_pos.x + screen_pos.y) & 1) == frame_counter % 2) {
             return false;
         }
     }
