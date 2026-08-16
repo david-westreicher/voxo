@@ -43,6 +43,9 @@ void main() {
     vec3 color = vec3(0.0);
     int kernel_index = 0;
     float current_depth = texture(tex_current_depth, uv).r;
+    if (current_depth >= CAMERA_FAR) {
+        return;
+    }
     vec3 current_normal = texture(tex_current_normals, uv).rgb;
     for (int x = -2; x <= 2; ++x) {
         for (int y = -2; y <= 2; ++y) {
