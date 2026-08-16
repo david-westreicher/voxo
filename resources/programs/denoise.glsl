@@ -94,7 +94,7 @@ void main() {
     float current_depth = texture(tex_current_depth, uv).r;
     vec3 current_color = texture(tex_current, uv).rgb;
     vec2 motion_vector = texture(tex_motion_vectors, uv).rg;
-    if (current_depth > CAMERA_FAR || motion_vector.x == -2.0) {
+    if (current_depth > CAMERA_FAR) {
         clean_color = current_color;
         return;
     }
@@ -108,13 +108,13 @@ void main() {
     vec3 minimum_color = current_color;
     vec3 maximum_color = current_color;
     vec3 resolved_color = spiral_sampling(uv, plane, current_normal, current_color, minimum_color, maximum_color);
-    vec3 history_color = texture(tex_last, old_uv).rgb;
     float last_depth = texture(tex_last_depth, old_uv).r;
     // reject history
     if (any(lessThan(old_uv, vec2(0))) || any(greaterThan(old_uv, vec2(1))) || abs(last_depth - current_depth) > 3.0) {
         clean_color = resolved_color;
         return;
     }
+    vec3 history_color = texture(tex_last, old_uv).rgb;
     if (use_history_clamping) {
         history_color = clamp(history_color, minimum_color, maximum_color);
     }

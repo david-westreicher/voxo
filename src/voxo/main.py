@@ -281,7 +281,9 @@ class VoxoWindow(CameraWindow):
                 motion_vectors=self.gbuffer.current.motion_vectors,
                 suns=self.scene.suns,
                 light_texture=self.voxel_lighting.final_light_texture,
-                depth_texture=gbuffer.depth_texture,
+                depth_texture=self.gbuffer.current.depth_texture,
+                linear_depth_texture=self.gbuffer.current.linear_depth,
+                prev_linear_depth_texture=self.gbuffer.last.linear_depth,
             )
             self.ctx.screen.use()
             self.post_processing.render_final_tonemapped_texture()
