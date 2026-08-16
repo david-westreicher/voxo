@@ -259,12 +259,9 @@ class VoxoWindow(CameraWindow):
             self.voxel_lighting.render_specular(
                 self.synced_camera,
                 self.gbuffer.current,
-                self.gbuffer.last,
                 self.global_occluder,
                 self.scene.suns,
                 self.frame_counter,
-                camera_moved=self.last_frame_projview
-                != (self.synced_camera.projection.matrix @ self.synced_camera.matrix),
             )
 
         # Post processing

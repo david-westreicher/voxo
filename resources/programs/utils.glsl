@@ -164,3 +164,31 @@ Ray transform_to_local_ray(Ray world_ray, mat4 model_inverse) {
     vec3 direction = normalize((model_inverse * vec4(world_ray.direction, 0.0)).xyz);
     return Ray(origin, direction);
 }
+
+vec2 closest_fragment(sampler2D depth_texture, vec2 uv) {
+    vec2 texel_size = 1 / textureSize(depth_texture, 0).xy;
+    float minimum_depth = 10000.0;
+    vec2 closest = uv;
+    for (int x = -1; x <= 1; ++x) {
+        for (int y = -1; y <= 1; ++y) {
+            vec2 coord = uv + vec2(x, y) * texel_size;
+            float depth = texture(depth_texture, coord).x;
+            if (depth < minimum_depth) {
+                depth = minimum_depth;
+                closest = coord;
+            }
+        }
+    }
+    return closest;
+}
+
+void min_max_color_neighborhood(sampler2D u_image, vec2 uv, inout vec3 min_color, inout vec3 max_color) {
+    vec2 texel_size = 1 / textureSize(u_image, 0).xy;
+    for (int x = -1; x <= 1; ++x) {
+        for (int y = -1; y <= 1; ++y) {
+            vec3 tex_sample = texture(u_image, uv + vec2(x, y) * texel_size).rgb;
+            min_color = min(min_color, tex_sample);
+            max_color = max(max_color, tex_sample);
+        }
+    }
+}

@@ -36,38 +36,12 @@ const vec2 plus_offsets[] = vec2[](
     );
 vec2 texel_size = 1 / textureSize(u_image, 0).xy;
 
-void min_max_color_neighborhood(sampler2D u_image, vec2 uv, inout vec3 min_color, inout vec3 max_color) {
-    for (int x = -1; x <= 1; ++x) {
-        for (int y = -1; y <= 1; ++y) {
-            vec3 tex_sample = texture(u_image, uv + vec2(x, y) * texel_size).rgb;
-            min_color = min(min_color, tex_sample);
-            max_color = max(max_color, tex_sample);
-        }
-    }
-}
-
 void min_max_color_plus(sampler2D u_image, vec2 uv, inout vec3 min_color, inout vec3 max_color) {
     for (int i = 0; i < 5; ++i) {
         vec3 tex_sample = texture(u_image, uv + plus_offsets[i] * texel_size).rgb;
         min_color = min(min_color, tex_sample);
         max_color = max(max_color, tex_sample);
     }
-}
-
-vec2 closest_fragment(vec2 uv) {
-    float minimum_depth = 10000.0;
-    vec2 closest = uv;
-    for (int x = -1; x <= 1; ++x) {
-        for (int y = -1; y <= 1; ++y) {
-            vec2 coord = uv + vec2(x, y) * texel_size;
-            float depth = texture(u_linear_depth, coord).x;
-            if (depth < minimum_depth) {
-                depth = minimum_depth;
-                closest = coord;
-            }
-        }
-    }
-    return closest;
 }
 
 vec3 clip_aabb(vec3 color, vec3 minimum, vec3 maximum) {
@@ -97,7 +71,7 @@ vec3 clip_color(vec3 current_color, vec3 last_color) {
 }
 
 void main() {
-    vec2 motion_vector = texture(u_motion_vectors, closest_fragment(uv)).rg;
+    vec2 motion_vector = texture(u_motion_vectors, closest_fragment(u_linear_depth, uv)).rg;
     vec3 current_color = texture(u_image, uv).rgb;
     vec2 old_uv = uv + motion_vector;
     vec3 last_color = texture(u_last_image, old_uv).rgb;

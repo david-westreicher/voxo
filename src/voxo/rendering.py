@@ -198,7 +198,7 @@ class PostProcessing:
         ]
 
 
-class Denoiser:
+class SpecularDenoiser:
     def __init__(self, window: WindowConfig, size: tuple[int, int], name: str) -> None:
         self.pingpong = 0
         self.textures: list[Texture] = []
@@ -209,9 +209,7 @@ class Denoiser:
             self.textures[-1].label = f"tex2d_{name}_{i}"
             self.framebuffers.append(window.ctx.framebuffer(color_attachments=[self.textures[-1]]))
             self.framebuffers[-1].label = f"framebuffer_{name}_{i}"
-        self.stbn_scalar = window.load_texture_array("assets/stbn_scalar.png", layers=64)
-        self.stbn_scalar.filter = (moderngl.NEAREST, moderngl.NEAREST)
-        self.program = window.load_program("programs/denoise.glsl", defines=GLOBAL_DEFINE)
+        self.program = window.load_program("programs/specular_denoise.glsl", defines=GLOBAL_DEFINE)
         self.program.label = f"prog_{name}"
         self.quad = geometry.quad_fs(normals=False, uvs=True)
 
@@ -227,36 +225,18 @@ class Denoiser:
     def clean_texture(self) -> Texture:
         return self.textures[self.pingpong]
 
-    def render(  # noqa: PLR0913
+    def render(
         self,
-        camera: Camera,
         current_texture: Texture,
         motion_vectors: Texture,
         current_depth: Texture,
-        last_depth: Texture,
-        current_normals: Texture,
-        frame_counter: int,
-        *,
-        camera_moved: bool,
-        last_texture: Texture | None = None,
     ) -> None:
         self.pingpong = 1 - self.pingpong
         self.current_framebuffer.use()
-        self.program["frame_counter"] = frame_counter
-        self.program["u_inv_projection"].write(glm.inverse(camera.projection.matrix))
-        self.program["u_inv_view"].write(glm.inverse(camera.matrix))
-        self.program["use_history_clamping"] = camera_moved
-
-        if last_texture:
-            last_texture.use(location=0)
-        else:
-            self.last_texture.use(location=0)
+        self.last_texture.use(location=0)
         current_texture.use(location=1)
         motion_vectors.use(location=2)
         current_depth.use(location=3)
-        current_normals.use(location=4)
-        self.stbn_scalar.use(location=5)
-        last_depth.use(location=6)
         self.quad.render(self.program)
 
     @cached_property
