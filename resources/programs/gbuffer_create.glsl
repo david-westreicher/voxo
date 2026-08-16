@@ -1,5 +1,6 @@
 #version 430
 #define USE_VOXEL_OBJECT_INSTANCING
+#define USE_TAA
 #extension GL_ARB_bindless_texture : require
 #extension GL_ARB_gpu_shader_int64 : require
 
@@ -202,7 +203,11 @@ void main() {
     int MAX_STEPS = int(max(size.x, max(size.y, size.z))) * 3;
 
     vec2 screen_uv = gl_FragCoord.xy / SCREEN_DIMENSIONS;
+    #if USE_TAA == 1
     vec2 jitter = (halton2D(frame_counter) - vec2(0.5)) * 0.5;
+    #else
+    vec2 jitter = vec2(0.0);
+    #endif
     Ray camera_ray = compute_camera_ray(screen_uv, uInvProjection, uInvView, jitter);
     Ray local_ray = transform_to_local_ray(camera_ray, m_model_inverse);
 

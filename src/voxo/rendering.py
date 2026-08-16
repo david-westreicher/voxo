@@ -8,7 +8,7 @@ from moderngl_window.context.base.window import WindowConfig
 from moderngl_window.scene import Camera
 from pyglm import glm
 
-from .constants import GLOBAL_DEFINE, GLOBAL_OCCLUDER_DIMENSIONS
+from .constants import GLOBAL_DEFINE, GLOBAL_OCCLUDER_DIMENSIONS, USE_TAA
 from .objects import Light, Object, Sun, VoxelObject, Water
 
 
@@ -141,6 +141,8 @@ class PostProcessing:
         suns: Sequence[Sun],
         light_texture: Texture,
         depth_texture: Texture,
+        linear_depth_texture: Texture,
+        prev_linear_depth_texture: Texture,
     ) -> None:
         sun_direction = suns[0].direction if suns and suns[0].visible else glm.vec3(0, -1, 0)
         sun_color = suns[0].color if suns and suns[0].visible else glm.vec3(0, -1, 0)
@@ -154,13 +156,16 @@ class PostProcessing:
         depth_texture.use(location=1)
         self.sky_texture.use(location=2)
         self.quad.render(self.postprocessing_program)
-        self.taa.render(self.final_texture, motion_vectors)
-
-        self.bloom.render(self.taa.clean_texture)
+        if USE_TAA:
+            self.taa.render(self.final_texture, motion_vectors, linear_depth_texture, prev_linear_depth_texture)
+            self.bloom.render(self.taa.clean_texture)
+        else:
+            self.bloom.render(self.final_texture)
 
         self.final_framebuffer.use()
-        self.taa.clean_texture.use(location=0)
-        self.quad.render(self.copy_program)
+        if USE_TAA:
+            self.taa.clean_texture.use(location=0)
+            self.quad.render(self.copy_program)
         self.bloom.add_final_bloom(strength=1.0)
 
     def render_final_tonemapped_texture(self) -> None:
@@ -260,6 +265,8 @@ class TAA:
         for i in range(2):
             texture = window.ctx.texture(size, components=3, dtype="f2")
             texture.label = f"texture2d_taa_{i}"
+            texture.repeat_x = False
+            texture.repeat_y = False
             framebuffer = window.ctx.framebuffer(color_attachments=[texture])
             self.textures.append(texture)
             self.framebuffers.append(framebuffer)
@@ -280,12 +287,20 @@ class TAA:
     def current_framebuffer(self) -> Framebuffer:
         return self.framebuffers[self.pingpong]
 
-    def render(self, image: Texture, motion_vectors: Texture) -> None:
+    def render(
+        self,
+        image: Texture,
+        motion_vectors: Texture,
+        linear_depth_texture: Texture,
+        prev_linear_depth_texture: Texture,
+    ) -> None:
         self.pingpong = 1 - self.pingpong
 
         image.use(location=0)
         self.last_texture.use(location=1)
         motion_vectors.use(location=2)
+        linear_depth_texture.use(location=3)
+        prev_linear_depth_texture.use(location=4)
 
         self.framebuffers[self.pingpong].use()
         self.quad.render(self.taa_program)
