@@ -23,6 +23,7 @@ layout(binding = 1) uniform sampler2D u_last_image;
 layout(binding = 2) uniform sampler2D u_motion_vectors;
 layout(binding = 3) uniform sampler2D u_linear_depth;
 layout(binding = 4) uniform sampler2D u_prev_linear_depth;
+layout(binding = 5) uniform sampler2D u_reflectivity;
 
 layout(location = 0) out vec3 fragColor;
 
@@ -35,38 +36,12 @@ const vec2 plus_offsets[] = vec2[](
     );
 vec2 texel_size = 1 / textureSize(u_image, 0).xy;
 
-void min_max_color_neighborhood(sampler2D u_image, vec2 uv, inout vec3 min_color, inout vec3 max_color) {
-    for (int x = -1; x <= 1; ++x) {
-        for (int y = -1; y <= 1; ++y) {
-            vec3 tex_sample = texture(u_image, uv + vec2(x, y) * texel_size).rgb;
-            min_color = min(min_color, tex_sample);
-            max_color = max(max_color, tex_sample);
-        }
-    }
-}
-
 void min_max_color_plus(sampler2D u_image, vec2 uv, inout vec3 min_color, inout vec3 max_color) {
     for (int i = 0; i < 5; ++i) {
         vec3 tex_sample = texture(u_image, uv + plus_offsets[i] * texel_size).rgb;
         min_color = min(min_color, tex_sample);
         max_color = max(max_color, tex_sample);
     }
-}
-
-vec2 closest_fragment(vec2 uv) {
-    float minimum_depth = 10000.0;
-    vec2 closest = uv;
-    for (int x = -1; x <= 1; ++x) {
-        for (int y = -1; y <= 1; ++y) {
-            vec2 coord = uv + vec2(x, y) * texel_size;
-            float depth = texture(u_linear_depth, coord).x;
-            if (depth < minimum_depth) {
-                depth = minimum_depth;
-                closest = coord;
-            }
-        }
-    }
-    return closest;
 }
 
 vec3 clip_aabb(vec3 color, vec3 minimum, vec3 maximum) {
@@ -96,7 +71,7 @@ vec3 clip_color(vec3 current_color, vec3 last_color) {
 }
 
 void main() {
-    vec2 motion_vector = texture(u_motion_vectors, closest_fragment(uv)).rg;
+    vec2 motion_vector = texture(u_motion_vectors, closest_fragment(u_linear_depth, uv)).rg;
     vec3 current_color = texture(u_image, uv).rgb;
     vec2 old_uv = uv + motion_vector;
     vec3 last_color = texture(u_last_image, old_uv).rgb;
@@ -104,7 +79,8 @@ void main() {
         fragColor = mix(current_color, last_color, 0.95);
         return;
     }
-    if (motion_vector.x == -2.0 || any(lessThan(old_uv, vec2(0))) || any(greaterThan(old_uv, vec2(1)))) {
+    float reflectivity = texture(u_reflectivity, uv).r;
+    if (motion_vector.x == -2.0 || any(lessThan(old_uv, vec2(0))) || any(greaterThan(old_uv, vec2(1))) || reflectivity > 0.5) {
         fragColor = current_color;
         return;
     }
