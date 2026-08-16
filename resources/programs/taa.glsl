@@ -23,6 +23,7 @@ layout(binding = 1) uniform sampler2D u_last_image;
 layout(binding = 2) uniform sampler2D u_motion_vectors;
 layout(binding = 3) uniform sampler2D u_linear_depth;
 layout(binding = 4) uniform sampler2D u_prev_linear_depth;
+layout(binding = 5) uniform sampler2D u_reflectivity;
 
 layout(location = 0) out vec3 fragColor;
 
@@ -104,7 +105,8 @@ void main() {
         fragColor = mix(current_color, last_color, 0.95);
         return;
     }
-    if (motion_vector.x == -2.0 || any(lessThan(old_uv, vec2(0))) || any(greaterThan(old_uv, vec2(1)))) {
+    float reflectivity = texture(u_reflectivity, uv).r;
+    if (motion_vector.x == -2.0 || any(lessThan(old_uv, vec2(0))) || any(greaterThan(old_uv, vec2(1))) || reflectivity > 0.5) {
         fragColor = current_color;
         return;
     }

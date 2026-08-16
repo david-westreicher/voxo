@@ -134,7 +134,7 @@ class PostProcessing:
         self.bloom = Bloom(window, size)
         self.taa = TAA(window, size)
 
-    def render(
+    def render(  # noqa: PLR0913
         self,
         camera: Camera,
         motion_vectors: Texture,
@@ -143,6 +143,7 @@ class PostProcessing:
         depth_texture: Texture,
         linear_depth_texture: Texture,
         prev_linear_depth_texture: Texture,
+        reflectivity_texture: Texture,
     ) -> None:
         sun_direction = suns[0].direction if suns and suns[0].visible else glm.vec3(0, -1, 0)
         sun_color = suns[0].color if suns and suns[0].visible else glm.vec3(0, -1, 0)
@@ -157,7 +158,13 @@ class PostProcessing:
         self.sky_texture.use(location=2)
         self.quad.render(self.postprocessing_program)
         if USE_TAA:
-            self.taa.render(self.final_texture, motion_vectors, linear_depth_texture, prev_linear_depth_texture)
+            self.taa.render(
+                self.final_texture,
+                motion_vectors,
+                linear_depth_texture,
+                prev_linear_depth_texture,
+                reflectivity_texture,
+            )
             self.bloom.render(self.taa.clean_texture)
         else:
             self.bloom.render(self.final_texture)
@@ -257,6 +264,53 @@ class Denoiser:
         return [self.program]
 
 
+class ATrousDenoiser:
+    def __init__(self, window: WindowConfig, size: tuple[int, int], name: str) -> None:
+        self.pingpong = 0
+        self.textures: list[Texture] = []
+        self.framebuffers: list[Framebuffer] = []
+        for i in range(2):
+            self.textures.append(window.ctx.texture(size=size, components=3, dtype="f2"))
+            self.textures[-1].filter = moderngl.LINEAR, moderngl.LINEAR
+            self.textures[-1].label = f"tex2d_{name}_{i}"
+            self.textures[-1].repeat_x = False
+            self.textures[-1].repeat_y = False
+            self.framebuffers.append(window.ctx.framebuffer(color_attachments=[self.textures[-1]]))
+            self.framebuffers[-1].label = f"framebuffer_{name}_{i}"
+        self.program = window.load_program("programs/atrous.glsl", defines=GLOBAL_DEFINE)
+        self.program.label = f"prog_{name}"
+        self.quad = geometry.quad_fs(normals=False, uvs=True)
+
+    @property
+    def current_framebuffer(self) -> Framebuffer:
+        return self.framebuffers[self.pingpong]
+
+    @property
+    def clean_texture(self) -> Texture:
+        return self.textures[self.pingpong]
+
+    def render(
+        self,
+        current_texture: Texture,
+        current_depth: Texture,
+        current_normals: Texture,
+        *,
+        step_size: float = 1.0,
+    ) -> None:
+        self.pingpong = 1 - self.pingpong
+        self.current_framebuffer.use()
+        self.program["step_size"] = step_size
+
+        current_texture.use(location=0)
+        current_depth.use(location=1)
+        current_normals.use(location=2)
+        self.quad.render(self.program)
+
+    @cached_property
+    def shaders(self) -> list[Program]:
+        return [self.program]
+
+
 class TAA:
     def __init__(self, window: WindowConfig, size: tuple[int, int]) -> None:
         self.pingpong = 0
@@ -293,6 +347,7 @@ class TAA:
         motion_vectors: Texture,
         linear_depth_texture: Texture,
         prev_linear_depth_texture: Texture,
+        reflectivity_texture: Texture,
     ) -> None:
         self.pingpong = 1 - self.pingpong
 
@@ -301,6 +356,7 @@ class TAA:
         motion_vectors.use(location=2)
         linear_depth_texture.use(location=3)
         prev_linear_depth_texture.use(location=4)
+        reflectivity_texture.use(location=5)
 
         self.framebuffers[self.pingpong].use()
         self.quad.render(self.taa_program)

@@ -22,7 +22,7 @@ from .constants import (
     VOXEL_OBJECT_COUNT_PER_BATCH,
 )
 from .objects import AreaLight, ConeLight, Light, Object, SphereLight, Sun, VoxelObject, VoxelObjectGPUBuffer
-from .rendering import Denoiser, GBuffer
+from .rendering import ATrousDenoiser, Denoiser, GBuffer
 from .utils import chunk_iters
 
 
@@ -208,6 +208,7 @@ class VoxelLighting:
 
         self.irradiance_denoiser_1 = Denoiser(window, size, "irradiance_denoiser_1")
         self.irradiance_denoiser_2 = Denoiser(window, size, "irradiance_denoiser_2")
+        self.irradiance_denoiser_3 = ATrousDenoiser(window, size, "atrous_denoiser")
         self.specular_denoiser = Denoiser(window, size, "specular_denoiser")
         self.compositor = LightCompositor(window, size)
 
@@ -254,37 +255,32 @@ class VoxelLighting:
         self.direct_lighting.render_lights(camera, current_gbuffer, occluder, lights, frame_counter)
         ctx.disable(moderngl.BLEND)
 
-    def denoise_direct(
-        self,
-        camera: Camera,
-        current_gbuffer: GBuffer,
-        last_gbuffer: GBuffer,
-        frame_counter: int,
-        *,
-        camera_moved: bool,
-    ) -> None:
-        self.irradiance_denoiser_1.render(
-            camera=camera,
-            camera_moved=camera_moved,
+    def denoise_irradiance(self, current_gbuffer: GBuffer) -> None:
+        self.irradiance_denoiser_3.render(
             current_texture=self.irradiance_texture,
-            motion_vectors=current_gbuffer.motion_vectors,
             current_depth=current_gbuffer.linear_depth,
-            last_depth=last_gbuffer.linear_depth,
             current_normals=current_gbuffer.normal_texture,
-            frame_counter=frame_counter,
-            last_texture=self.irradiance_denoiser_2.clean_texture,
+            step_size=1.0,
         )
-        self.irradiance_denoiser_2.render(
-            camera=camera,
-            camera_moved=camera_moved,
-            current_texture=self.irradiance_denoiser_1.clean_texture,
-            motion_vectors=current_gbuffer.motion_vectors,
+        self.irradiance_denoiser_3.render(
+            current_texture=self.irradiance_denoiser_3.clean_texture,
             current_depth=current_gbuffer.linear_depth,
-            last_depth=last_gbuffer.linear_depth,
             current_normals=current_gbuffer.normal_texture,
-            frame_counter=frame_counter + 1,
+            step_size=2.0,
         )
-        self.compositor.composite_diffuse(current_gbuffer, self.irradiance_denoiser_2.clean_texture)
+        self.irradiance_denoiser_3.render(
+            current_texture=self.irradiance_denoiser_3.clean_texture,
+            current_depth=current_gbuffer.linear_depth,
+            current_normals=current_gbuffer.normal_texture,
+            step_size=4.0,
+        )
+        self.irradiance_denoiser_3.render(
+            current_texture=self.irradiance_denoiser_3.clean_texture,
+            current_depth=current_gbuffer.linear_depth,
+            current_normals=current_gbuffer.normal_texture,
+            step_size=8.0,
+        )
+        self.compositor.composite_diffuse(current_gbuffer, self.irradiance_denoiser_3.clean_texture)
 
     def render_specular(  # noqa: PLR0913
         self,
@@ -335,6 +331,7 @@ class VoxelLighting:
             *self.irradiance_denoiser_1.textures,
             *self.irradiance_denoiser_2.textures,
             *self.specular_denoiser.textures,
+            *self.irradiance_denoiser_3.textures,
         ]
 
     @cached_property
@@ -346,6 +343,7 @@ class VoxelLighting:
             *self.compositor.shaders,
             *self.irradiance_denoiser_1.shaders,
             *self.irradiance_denoiser_2.shaders,
+            *self.irradiance_denoiser_3.shaders,
             *self.specular_denoiser.shaders,
         ]
 

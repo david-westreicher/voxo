@@ -254,14 +254,7 @@ class VoxoWindow(CameraWindow):
                 self.frame_counter,
             )
         with self.profile("denoise direct"):
-            self.voxel_lighting.denoise_direct(
-                self.synced_camera,
-                self.gbuffer.current,
-                self.gbuffer.last,
-                self.frame_counter,
-                camera_moved=self.last_frame_projview
-                != (self.synced_camera.projection.matrix @ self.synced_camera.matrix),
-            )
+            self.voxel_lighting.denoise_irradiance(self.gbuffer.current)
         with self.profile("specular"):
             self.voxel_lighting.render_specular(
                 self.synced_camera,
@@ -284,6 +277,7 @@ class VoxoWindow(CameraWindow):
                 depth_texture=self.gbuffer.current.depth_texture,
                 linear_depth_texture=self.gbuffer.current.linear_depth,
                 prev_linear_depth_texture=self.gbuffer.last.linear_depth,
+                reflectivity_texture=self.voxel_lighting.reflectivity_texture,
             )
             self.ctx.screen.use()
             self.post_processing.render_final_tonemapped_texture()
